@@ -1897,99 +1897,141 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 ## 6. Monitoring & Operations
 
 **Repository**: `edi-documentation`  
-**Overall Status**: 🟡 40% Complete (Documentation complete, implementation pending)  
-**Priority**: P1 (High) - Required for production operations  
+**Overall Status**: � 5% Complete (Documentation complete, implementation at 0%)  
+**Priority**: P0 (Critical Path) - **BLOCKING: Required for ABC reports and production operations**  
 **Last Updated**: October 7, 2025
 
 ### 6.1 Monitoring Documentation
 
-**Status**: ✅ 95% Complete  
+**Status**: ✅ 100% Complete  
 **Purpose**: Comprehensive monitoring and operations documentation for EDI Platform
 
 #### ✅ Completed Features
 - ✅ Executive metrics and KPIs defined
-- ✅ 36+ Application Insights KQL queries
+- ✅ 36+ Application Insights KQL queries documented
 - ✅ EDI-specific file processing queries (Queries 20-23)
 - ✅ Record-level validation queries
-- ✅ Trading partner statistics queries
-- ✅ Partner performance scorecard
+- ✅ Trading partner statistics queries (Queries 31-36)
+- ✅ Partner performance scorecard (Query 31)
 - ✅ Database performance queries (Event Store, Control Numbers, SFTP Tracking)
-- ✅ Service Bus monitoring queries
-- ✅ Blob Storage monitoring queries
-- ✅ Function App monitoring queries
-- ✅ Alert rules and thresholds (10 alerts defined)
-- ✅ Azure Monitor dashboard specifications
-- ✅ Operational runbooks (Partner onboarding, Control number reset, etc.)
-- ✅ Incident response procedures
-- ✅ Daily/Weekly/Monthly operational checklists
+- ✅ Service Bus monitoring queries (Queries 27-31)
+- ✅ Blob Storage monitoring queries (Queries 32-35)
+- ✅ Function App monitoring queries (Queries 36-40)
+- ✅ Alert rules and thresholds (10+ alerts defined with YAML configs)
+- ✅ Azure Monitor dashboard specifications (Executive + Operations)
+- ✅ Operational runbooks (6 runbooks documented)
+- ✅ Incident response procedures and escalation matrix
+- ✅ Daily/Weekly/Monthly/Quarterly operational checklists
+- ✅ Cost management queries and optimization strategies
 
-#### 🔄 Remaining Work (Estimated: 2 hours)
+#### 🚨 CRITICAL GAP IDENTIFIED
 
-##### Documentation Updates
-- [ ] **Add Query Examples for Azure Monitor** (1 hour)
-  - Export sample query results
-  - Add screenshot placeholders for dashboards
-  - Document common troubleshooting scenarios
-  
-- [ ] **Create Quick Reference Card** (1 hour)
-  - One-page KPI summary
-  - Critical alert thresholds
-  - Emergency contact information
-  - Quick troubleshooting guide
+**All ABC report queries depend on custom telemetry dimensions that are NOT yet implemented in application code.**
+
+Example: Queries reference `customDimensions.PartnerCode`, `customDimensions.TransactionType`, `customDimensions.FileStatus` - **these do not exist yet in any Function App**.
+
+**Impact**: 
+- ❌ ABC reports cannot be generated
+- ❌ Availability tracking not functional
+- ❌ Business continuity dashboards will show no data
+- ❌ Partner SLA compliance cannot be measured
+- ❌ Platform observability is essentially blind
 
 ---
 
 ### 6.2 Application Insights Configuration
 
-**Status**: 🔴 0% Complete  
-**Purpose**: Implement custom telemetry and monitoring queries in production  
-**Priority**: P1 (High)
+**Status**: 🔴 0% Complete - **BLOCKING ABC REPORTS**  
+**Purpose**: Implement custom telemetry dimensions required for all monitoring queries  
+**Priority**: P0 (Critical Path)
 
-#### 🔄 To Implement (Estimated: 16 hours)
+#### 🔄 To Implement (Estimated: 20 hours)
 
-##### Custom Dimensions Implementation (8 hours)
-- [ ] **Update All Function Apps** (6 hours)
-  - Add TelemetryEnricher class to EDI.Logging library
-  - Implement ITelemetryInitializer for standard dimensions
-  - Add custom dimensions to all trace logs:
-    - CorrelationId, PartnerCode, TransactionType
-    - FileStatus, ValidationStatus, ProcessingTimeMs
-    - EventType, EventSequence (for Event Store)
-  - Update SFTP Connector functions
-  - Update Platform Core functions
-  - Update Mapper functions
+##### Custom Dimensions Implementation (10 hours) - **CRITICAL FOR ABC REPORTS**
+- [ ] **Create TelemetryEnricher in Argus.Logging Library** (3 hours) - **P0**
+  - Implement ITelemetryInitializer interface
+  - Add standard custom dimensions to ALL telemetry:
+    - `CorrelationId` (from Activity.Current.Id or generate GUID)
+    - `PartnerCode` (from call context or message properties)
+    - `TransactionType` (270, 271, 834, 837, 835)
+    - `FileName` (for file processing tracking)
+    - `FileStatus` (Received, Validated, Processing, Completed, Failed)
+    - `ValidationStatus` (Valid, Invalid, Warning)
+    - `ProcessingTimeMs` (calculated duration for SLA tracking)
+    - `EventType` (for Event Store projections)
+    - `EventSequence` (for projection lag monitoring)
+  - Add CallContext helper for storing partner/transaction context
+  - Unit tests for telemetry enricher
   
-- [ ] **Test Telemetry** (2 hours)
-  - Verify custom dimensions appear in Application Insights
-  - Test correlation ID propagation across functions
-  - Validate query performance with new dimensions
+- [ ] **Update SFTP Connector Functions** (2 hours) - **P0**
+  - Register TelemetryEnricher in Program.cs
+  - Add custom dimensions to SftpDownloadFunction:
+    - Set PartnerCode before processing
+    - Track FileStatus lifecycle
+    - Log ProcessingTimeMs for each file
+  - Add custom dimensions to SftpUploadFunction:
+    - Set PartnerCode from message
+    - Track upload status
+  - Test in local environment with Application Insights
+  
+- [ ] **Update Platform Core Functions** (3 hours) - **P0**
+  - InboundRouter.Function: PartnerCode, TransactionType, FileStatus
+  - ControlNumberGenerator.Function: PartnerCode, TransactionType, ControlNumberType
+  - EnterpriseScheduler.Function: JobName, ExecutionStatus, DurationMs
+  - FileArchiver.Function: ContainerName, TierTransition, FileCount
+  - NotificationService.Function: NotificationType, Severity, Channel
+  - Test telemetry propagation through Service Bus messages
+  
+- [ ] **Update Mapper Functions** (2 hours) - **P0**
+  - EligibilityMapper: PartnerCode, TransactionType (270/271), ValidationStatus
+  - ClaimsMapper: PartnerCode, TransactionType (837/277), ClaimCount
+  - EnrollmentMapper: PartnerCode, TransactionType (834), MemberCount
+  - RemittanceMapper: PartnerCode, TransactionType (835), PaymentAmount
+  - Test custom dimensions in Application Insights Live Metrics
 
 ##### Query Deployment (4 hours)
 - [ ] **Save Queries to Application Insights** (2 hours)
-  - Create query packs for each category:
-    - Executive Metrics (Queries 1-4)
-    - File Processing (Queries 20-23)
-    - Transaction Processing (Queries 5-8)
-    - Performance Monitoring (Queries 9-12)
-    - Error Analysis (Queries 13-15)
-    - Partner Activity (Queries 16-19)
-  - Share queries with operations team
+  - Create shared query packs in Azure Portal:
+    - "ABC-Executive-Metrics" (Queries 1-4, 31, 34)
+    - "ABC-File-Processing" (Queries 20-24)
+    - "ABC-Transaction-Processing" (Queries 5-8, 25-30)
+    - "ABC-Performance-Monitoring" (Queries 9-12)
+    - "ABC-Error-Analysis" (Queries 13-15)
+    - "ABC-Partner-Activity" (Queries 16-19, 32-36)
+  - Pin critical queries to Application Insights "Queries" tab
+  - Share query packs with operations team (read-only access)
   
-- [ ] **Test Saved Queries** (2 hours)
-  - Verify all 36+ queries execute successfully
-  - Validate results against expected data
-  - Document query IDs and access paths
+- [ ] **Test Saved Queries with Real Data** (2 hours)
+  - Run queries against Dev environment after telemetry deployment
+  - Verify custom dimensions populate correctly
+  - Validate query performance (< 5 seconds for all queries)
+  - Document query IDs and permalink URLs
+  - Create query troubleshooting guide
 
-##### Log Analytics Workspace (4 hours)
-- [ ] **Configure Custom Tables** (2 hours)
-  - Create custom log table for file tracking
-  - Create custom log table for transaction summary
-  - Define retention policies (90 days for critical, 30 days for standard)
+##### Log Analytics Workspace Configuration (6 hours)
+- [ ] **Configure Diagnostic Settings** (3 hours)
+  - Enable diagnostic logs for all Azure resources:
+    - Function Apps → FunctionAppLogs, AllMetrics
+    - Service Bus → OperationalLogs, AllMetrics
+    - SQL Databases → QueryStoreRuntimeStatistics, Blocks, Timeouts
+    - Blob Storage → StorageBlobLogs, Transaction
+    - Key Vault → AuditEvent
+  - Route all logs to centralized Log Analytics workspace
+  - Set retention: 90 days for audit logs, 30 days for operational logs
+  - Test log ingestion (verify logs appear within 5 minutes)
   
-- [ ] **Data Collection Rules** (2 hours)
-  - Configure diagnostic settings for all Azure resources
-  - Route logs to centralized Log Analytics workspace
-  - Test log ingestion and query latency
+- [ ] **Create Custom Log Tables** (2 hours)
+  - FileProcessingSummary_CL: Aggregated file processing metrics
+  - TransactionSummary_CL: Daily transaction volume by partner/type
+  - PartnerSLACompliance_CL: Pre-calculated SLA metrics
+  - Define schemas with JSON mapping
+  - Create data collection endpoints
+  
+- [ ] **Verify Query Latency** (1 hour)
+  - Test query performance on 1M+ log entries
+  - Verify indexed fields for custom dimensions
+  - Optimize slow queries (> 10 seconds)
+  - Document query optimization techniques
 
 ---
 
@@ -2086,62 +2128,141 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 
 ---
 
-### 6.4 Azure Monitor Dashboards
+### 6.4 Azure Monitor Dashboards & Workbooks
 
-**Status**: 🔴 0% Complete  
-**Purpose**: Deploy executive and operational dashboards  
-**Priority**: P1 (High)
+**Status**: 🔴 0% Complete - **REQUIRED FOR ABC REPORTS**  
+**Purpose**: Deploy executive dashboards, operations dashboards, and ABC reporting workbooks  
+**Priority**: P0 (Critical Path)
 
-#### 🔄 To Implement (Estimated: 10 hours)
+#### 🔄 To Implement (Estimated: 22 hours)
 
-##### Executive Dashboard (4 hours)
-- [ ] **Create Dashboard** (2 hours)
-  - Tile 1: Daily Transaction Volume (Donut Chart)
-  - Tile 2: Platform Success Rate (Single Stat)
-  - Tile 3: Transactions by Partner (Bar Chart)
-  - Tile 4: File Processing Success Rate (Gauge)
-  - Tile 5: Record Validation Rate (Single Stat)
-  - Tile 6: Partner Performance Grades (Donut Chart)
-  - Deploy as Bicep template
+##### Executive Dashboard (4 hours) - **ABC Availability Reporting**
+- [ ] **Create Executive Dashboard as ARM Template** (2 hours) - **P0**
+  - Tile 1: Daily Transaction Volume by Type (Donut Chart - Query 1)
+  - Tile 2: Platform Success Rate (Single Stat with trend - Query 2)
+  - Tile 3: Top 10 Partners by Volume (Bar Chart - Query 36)
+  - Tile 4: File Processing Success Rate (Gauge - Query 20)
+  - Tile 5: Record Validation Rate (Single Stat - Query 26)
+  - Tile 6: Partner Performance Grades (Donut Chart - Query 31)
+  - Tile 7: SLA Compliance by Transaction Type (Bar Chart - Query 3)
+  - Tile 8: Cost Per Transaction (Line Chart - Query 4)
+  - Deploy as `dashboard-edi-executive.json` ARM template
   
-- [ ] **Configure Permissions** (1 hour)
-  - Share with executive team (read-only)
-  - Share with operations team (edit)
-  - Configure refresh intervals
+- [ ] **Configure Dashboard Permissions & Sharing** (1 hour)
+  - Share with executive team (Reader role)
+  - Share with operations team (Contributor role)
+  - Configure auto-refresh: 15 minutes
+  - Set time range selector (Last 24h, Last 7d, Last 30d)
+  - Test responsiveness on mobile devices
   
-- [ ] **Test Dashboard** (1 hour)
-  - Verify all tiles render correctly
-  - Verify data accuracy
-  - Test on different screen sizes
-
-##### Operations Dashboard (4 hours)
-- [ ] **Create Dashboard** (2 hours)
-  - Tile 7: Active Service Bus Messages (Multi-Line Chart)
-  - Tile 8: Failed Transactions (Table)
-  - Tile 9: File Processing Funnel (Bar Chart)
-  - Tile 10: Top Validation Errors (Table)
-  - Tile 11: Partner Activity (Table)
-  - Deploy as Bicep template
-  
-- [ ] **Configure Auto-Refresh** (0.5 hours)
-  - Set 5-minute refresh for real-time tiles
-  - Set 15-minute refresh for historical tiles
-  
-- [ ] **Test Dashboard** (1.5 hours)
-  - Verify real-time data updates
-  - Verify drill-down functionality
-  - Train operations team
-
-##### Dashboard Deployment (2 hours)
-- [ ] **Automate Deployment** (1 hour)
-  - Add dashboards to Bicep infrastructure
-  - Deploy to Dev, Test, Prod environments
-  - Version control dashboard definitions
-  
-- [ ] **Documentation** (1 hour)
-  - Screenshot each dashboard
-  - Document tile queries
+- [ ] **Test & Validate Executive Dashboard** (1 hour)
+  - Verify all 8 tiles render correctly
+  - Verify data accuracy against raw queries
+  - Test drill-down links (click tile → full query)
+  - Screenshot for documentation
   - Create dashboard user guide
+
+##### Operations Dashboard (4 hours) - **Real-Time Monitoring**
+- [ ] **Create Operations Dashboard as ARM Template** (2 hours) - **P0**
+  - Tile 1: Active Service Bus Messages by Queue/Topic (Multi-Line Chart)
+  - Tile 2: Failed Transactions with Error Details (Table - Query 13)
+  - Tile 3: File Processing Funnel (Sankey/Bar Chart - Query 21)
+  - Tile 4: Top 10 Validation Errors (Table - Query 8)
+  - Tile 5: Partner Activity Heatmap by Hour (Heatmap - Query 35)
+  - Tile 6: Database Query Performance (Table - Query 10)
+  - Tile 7: Service Bus DLQ Depth (Line Chart with alert threshold - Query 28)
+  - Tile 8: Function App Execution Duration P95 (Line Chart - Query 37)
+  - Tile 9: Event Store Projection Lag (Line Chart with threshold - Query 38)
+  - Deploy as `dashboard-edi-operations.json`
+  
+- [ ] **Configure Auto-Refresh for Operations** (0.5 hours)
+  - Set 5-minute refresh for real-time tiles (Tiles 1, 7, 9)
+  - Set 15-minute refresh for historical tiles (Tiles 2-6, 8)
+  - Enable "Live Mode" toggle
+  
+- [ ] **Test & Train Operations Team** (1.5 hours)
+  - Verify real-time data updates (test with actual transactions)
+  - Test drill-down to Application Insights
+  - Document incident response using dashboard
+  - Conduct training session for operations team
+
+##### Azure Workbooks for ABC Reports (12 hours) - **CRITICAL**
+- [ ] **Create Availability Reporting Workbook** (4 hours) - **P0**
+  - Section 1: Platform Availability SLA (Query 2, Query 3)
+    - Current month uptime percentage
+    - Daily availability trend chart
+    - Downtime incidents table with duration
+    - SLA compliance by transaction type
+  - Section 2: Component Availability (Queries 36-40)
+    - Function App availability by function
+    - Service Bus availability
+    - Database availability
+    - SFTP Connector availability
+  - Section 3: Partner-Specific Availability (Query 34)
+    - Per-partner SLA compliance
+    - Partner availability heatmap
+    - Partner file processing success rates
+  - Parameters: Date range, Partner filter, Transaction type filter
+  - Export to PDF capability for stakeholder reports
+  - Save as `workbook-edi-availability-report.json`
+  
+- [ ] **Create Business Continuity Workbook** (4 hours) - **P0**
+  - Section 1: Disaster Recovery Metrics
+    - Backup success rate and frequency
+    - Recovery Time Objective (RTO) tracking
+    - Recovery Point Objective (RPO) tracking
+    - Last successful failover test date
+  - Section 2: Data Durability
+    - Event Store event count and growth rate
+    - Database backup status
+    - Blob storage replication lag
+    - Transaction data retention compliance
+  - Section 3: Capacity Planning
+    - Resource utilization trends (CPU, memory, storage)
+    - Transaction volume forecasting
+    - Storage growth projection
+    - Cost projection based on growth
+  - Section 4: Incident Summary
+    - P1/P2 incident count and MTTR
+    - Root cause analysis summary
+    - Remediation status
+  - Save as `workbook-edi-business-continuity.json`
+  
+- [ ] **Create Partner SLA Compliance Workbook** (4 hours) - **P1**
+  - Section 1: Monthly Partner Scorecard (Query 31)
+    - Partner performance grades (A/B/C/D)
+    - File success rate by partner
+    - Transaction volume by partner
+    - Average processing latency by partner
+  - Section 2: SLA Breach Analysis (Query 34)
+    - Partners with SLA violations
+    - Breach count and duration
+    - Trend analysis (improving/degrading)
+    - Notification history
+  - Section 3: Partner Data Quality (Query 33)
+    - Record validation rate by partner
+    - Top validation errors by partner
+    - Data quality score trend
+  - Section 4: Partner Transaction Trends (Query 23, 24)
+    - Volume anomaly detection
+    - Upload schedule compliance
+    - File size trends
+  - Export capability for quarterly business reviews
+  - Save as `workbook-edi-partner-sla-compliance.json`
+
+##### Dashboard & Workbook Deployment (2 hours)
+- [ ] **Automate Deployment via Bicep** (1 hour)
+  - Create `monitoring-dashboards.bicep` module
+  - Deploy 2 dashboards + 3 workbooks to Dev/Test/Prod
+  - Version control all dashboard/workbook JSON definitions
+  - Add to main infrastructure pipeline
+  
+- [ ] **Create Dashboard Documentation** (1 hour)
+  - Screenshot each dashboard and workbook
+  - Document all tile queries with links to query definitions
+  - Create "ABC Reports User Guide" (PDF)
+  - Document refresh schedule and data latency
+  - Create troubleshooting guide for common issues
 
 ---
 
@@ -2243,32 +2364,77 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 
 ### 6.7 Summary - Monitoring & Operations Implementation
 
-**Total Effort**: ~60 hours (1.5 weeks)
+**Total Effort**: ~76 hours (1.9 weeks) - **UP FROM 60 hours**
 
-| Task | Hours | Priority | Dependencies |
-|------|-------|----------|--------------|
-| **Application Insights Configuration** | 16 | P1 | Function implementations |
-| **Alert Rules Deployment** | 12 | P0 | Action groups, Application Insights |
-| **Azure Monitor Dashboards** | 10 | P1 | Application Insights queries |
-| **Operational Runbooks** | 12 | P1 | Infrastructure deployed |
-| **Cost Management** | 8 | P2 | Azure resources deployed |
-| **Documentation Updates** | 2 | P2 | Monitoring implementation |
-| **TOTAL** | **60** | - | - |
+| Task | Hours | Priority | Dependencies | ABC Report Impact |
+|------|-------|----------|--------------|-------------------|
+| **Application Insights Configuration** | 20 | **P0** 🔴 | Function implementations | **BLOCKING** - No data for ABC reports |
+| **Alert Rules Deployment** | 12 | P0 | Action groups, Application Insights | Critical for availability alerting |
+| **Azure Monitor Dashboards & Workbooks** | 22 | **P0** 🔴 | Application Insights queries | **BLOCKING** - ABC reports require workbooks |
+| **Operational Runbooks** | 12 | P1 | Infrastructure deployed | Incident response |
+| **Cost Management** | 8 | P2 | Azure resources deployed | Cost reporting |
+| **Documentation Updates** | 0 | ✅ Complete | N/A | Documentation complete |
+| **TOTAL** | **76** | - | - | - |
 
-**Critical Path Items (P0):**
-- Alert Rules Deployment (12 hours) - Required for production launch
+**🚨 CRITICAL PATH ITEMS (P0) - BLOCKING ABC REPORTS:**
+1. **Application Insights Custom Telemetry** (20 hours) - **MUST DO FIRST**
+   - Without custom dimensions, no ABC report queries will work
+   - All 36+ queries depend on PartnerCode, TransactionType, FileStatus
+   - Impacts: Availability tracking, SLA compliance, partner performance
+   
+2. **Azure Workbooks for ABC Reports** (12 hours within Dashboards section) - **REQUIRED FOR ABC**
+   - Availability Reporting Workbook (platform SLA compliance)
+   - Business Continuity Workbook (DR metrics, capacity planning)
+   - Partner SLA Compliance Workbook (quarterly business reviews)
+   
+3. **Alert Rules Deployment** (12 hours)
+   - Platform availability alerts
+   - Partner SLA violation alerts
+   - Business continuity alerts
 
-**High Priority Items (P1):**
-- Application Insights Configuration (16 hours)
-- Azure Monitor Dashboards (10 hours)
-- Operational Runbooks (12 hours)
+**Implementation Sequence - UPDATED FOR ABC REPORTS:**
+1. **Week 1 (Days 1-2)**: Custom Telemetry Implementation (20 hours) - **BLOCKING**
+   - Day 1: Create TelemetryEnricher in Argus.Logging (3h)
+   - Day 1-2: Update all 11 Function Apps with custom dimensions (17h)
+   - Test in Dev environment, verify dimensions in Application Insights
+   
+2. **Week 1 (Days 3-4)**: Deploy Queries & Action Groups (8 hours)
+   - Save all 36+ queries to Application Insights
+   - Create action groups for alerting
+   - Test queries with real telemetry data
+   
+3. **Week 2 (Days 1-2)**: Deploy Critical Alerts (12 hours)
+   - Deploy 6 critical (P1) alerts
+   - Deploy 4 high priority (P2) alerts
+   - Test alert firing and notification delivery
+   
+4. **Week 2 (Days 3-5)**: Deploy Dashboards & ABC Workbooks (22 hours)
+   - Executive Dashboard (4h)
+   - Operations Dashboard (4h)
+   - **Availability Reporting Workbook (4h)** - ABC Report
+   - **Business Continuity Workbook (4h)** - ABC Report
+   - **Partner SLA Compliance Workbook (4h)** - ABC Report
+   - Deployment automation (2h)
+   
+5. **Week 3 (Optional)**: Runbooks & Cost Management (20 hours)
+   - Operational runbook automation (12h)
+   - Cost management dashboards (8h)
 
-**Implementation Sequence:**
-1. **Week 1**: Application Insights custom dimensions + Action Groups (8 hours)
-2. **Week 1**: Deploy critical alerts (P1 alerts) (6 hours)
-3. **Week 2**: Deploy dashboards + remaining alerts (14 hours)
-4. **Week 2**: Complete runbooks + cost management (20 hours)
-5. **Week 3**: Testing, documentation, training (12 hours)
+**SUCCESS CRITERIA FOR ABC REPORTS:**
+- ✅ Custom telemetry deployed to all 11 Function Apps
+- ✅ All 36+ queries return data (not empty results)
+- ✅ 3 ABC workbooks deployed and functional:
+  - Availability Reporting (platform SLA ≥99.5%)
+  - Business Continuity (RTO/RPO tracking)
+  - Partner SLA Compliance (per-partner metrics)
+- ✅ Executive dashboard shows real-time metrics
+- ✅ Operations dashboard updates every 5 minutes
+- ✅ Critical alerts (P1) firing correctly on test scenarios
+
+**RISK ASSESSMENT:**
+- **HIGH RISK**: If custom telemetry not implemented, ABC reports show NO DATA
+- **MEDIUM RISK**: Query performance may degrade with high telemetry volume (mitigate with indexed fields)
+- **LOW RISK**: Dashboard deployment is straightforward ARM template deployment
 
 ---
 
@@ -2651,7 +2817,7 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 
 ## 8. Estimated Effort Summary
 
-### Total Remaining Work: ~566.5 Hours (14.2 weeks @ 40 hrs/week) - Updated October 7, 2025
+### Total Remaining Work: ~582.5 Hours (14.6 weeks @ 40 hrs/week) - Updated October 7, 2025
 
 | Category | Hours | Weeks | Priority |
 |----------|-------|-------|----------|
@@ -2686,13 +2852,13 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 | - Bicep modules | 40 | 1.0 | P0 |
 | - GitHub Actions | 12 | 0.3 | P0 |
 | - CI/CD Pipelines (Dev/Test/Prod) | 32 | 0.8 | P0 |
-| **Monitoring & Operations** | **60** | **1.5** | **P0-P1** |
-| - Application Insights Configuration | 16 | 0.4 | P1 |
+| **Monitoring & Operations (ABC REPORTS)** | **76** | **1.9** | **P0** 🔴 |
+| - Application Insights Configuration | 20 | 0.5 | **P0** 🔴 BLOCKING |
 | - Alert Rules Deployment | 12 | 0.3 | P0 |
-| - Azure Monitor Dashboards | 10 | 0.25 | P1 |
+| - Azure Monitor Dashboards & Workbooks | 22 | 0.55 | **P0** 🔴 BLOCKING |
 | - Operational Runbooks | 12 | 0.3 | P1 |
 | - Cost Management | 8 | 0.2 | P2 |
-| - Documentation Updates | 2 | 0.05 | P2 |
+| - Documentation Updates | 0 | 0.0 | ✅ Complete |
 | **Security Implementation** | **56** | **1.4** | **P0-P1** |
 | - GitHub Advanced Security Setup | 16 | 0.4 | P0 |
 | - Security Gates in CI/CD | 8 | 0.2 | P0 |
@@ -2708,10 +2874,10 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 | - Function docs (remaining) | 0 | 0.0 | P1 |
 | - Runbooks | 24 | 0.6 | P1 |
 | - Diagrams | 12 | 0.3 | P2 |
-| **Contingency (20%)** | 113.3 | 2.8 | - |
-| **TOTAL** | **~566.5** | **~14.2** | - |
+| **Contingency (20%)** | 116.5 | 2.9 | - |
+| **TOTAL** | **~582.5** | **~14.6** | - |
 
-**Key Changes from Previous Assessment:**
+**Key Changes from Previous Assessment (October 7, 2025):**
 
 - **✅ RemittanceMapper.Function COMPLETE**: 0% → **85% Complete** (Section 3.4)
   - **-20 hours**: Full X12 835 implementation discovered (payment header, payer/payee, claims, service lines, adjustments)
@@ -2736,16 +2902,17 @@ This document provides a complete assessment of all Azure Functions in the EDI P
   - Vulnerability management and patching process - 8 hours
   - **Priority: P0-P1** (Critical for production deployment)
   
-- **+60 hours**: New Monitoring & Operations section added
-  - Application Insights custom telemetry implementation
-  - Alert rules deployment (10 critical and high priority alerts)
-  - Azure Monitor dashboards (Executive + Operations)
-  - Operational runbooks automation
-  - Cost management and optimization
+- **+76 hours**: Monitoring & Operations updated for ABC reports (was 60 hours)
+  - **CRITICAL**: Custom telemetry implementation (20h) - BLOCKING all ABC reports
+  - Alert rules deployment (12h) - 10 critical and high priority alerts
+  - Azure Monitor dashboards & **ABC Workbooks** (22h) - 3 workbooks for ABC reporting
+  - Operational runbooks automation (12h)
+  - Cost management and optimization (8h)
+  - **Impact**: Without custom telemetry, ABC reports show NO DATA
   
 - **+20 hours**: EDI.Configuration library critical gaps (X12 identifiers, connection config, routing/mapping rules)
 - **+40 hours**: Partner configuration & mapping integration (repository setup, mapper integration, deployment)
-- **Net change**: +144 hours (3.6 weeks) - Added 164 hours (monitoring + security + config) minus 20 hours (RemittanceMapper complete)
+- **Net change**: +160 hours (4.0 weeks) - Added 180 hours (monitoring + security + config) minus 20 hours (RemittanceMapper complete)
 
 **Package Collision Impact:**
 - **Immediate**: Blocks EnrollmentMapper and RemittanceMapper builds (2 of 4 mappers)
@@ -2753,10 +2920,21 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 - **Resolution**: Section 4.8 provides complete checklist for renaming to Argus.* prefix
 - **Timeline**: 24 hours (3 days) to complete across all repositories
 
-**Monitoring & Operations Breakdown:**
-- P0 (Critical): Alert Rules Deployment (12 hours) - Required for production launch
-- P1 (High Priority): Application Insights (16h), Dashboards (10h), Runbooks (12h) = 38 hours
-- P2 (Medium): Cost Management (8h), Documentation (2h) = 10 hours
+**Monitoring & Operations Breakdown (ABC Reports Focus):**
+- **P0 (Critical - BLOCKING ABC REPORTS): 54 hours**
+  - Application Insights Custom Telemetry (20h) - **MUST DO FIRST** - Enables all queries
+  - Azure Monitor Dashboards & ABC Workbooks (22h) - **3 workbooks for ABC reporting**
+  - Alert Rules Deployment (12h) - Availability and SLA alerting
+- P1 (High Priority): Operational Runbooks (12h) - Incident response automation
+- P2 (Medium): Cost Management (8h) - Cost optimization dashboards
+- ✅ Complete: Documentation (0h) - All documentation complete
+
+**ABC Report Dependencies:**
+1. Custom telemetry MUST be deployed first (blocks everything else)
+2. Queries depend on custom dimensions (PartnerCode, TransactionType, FileStatus)
+3. Workbooks depend on queries returning data
+4. Dashboards depend on workbooks and queries
+5. Without telemetry → No data → No ABC reports
 
 ---
 
