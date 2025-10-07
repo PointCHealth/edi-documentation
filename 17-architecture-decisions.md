@@ -2648,59 +2648,147 @@ GitHubWorkflowRuns_CL
 
 **Status:** ✅ Accepted  
 **Date:** September 8, 2025  
+**Updated:** October 7, 2025  
 **Decision Makers:** Platform Team, Architecture Team  
-**Technical Area:** DevOps
+**Technical Area:** DevOps, Repository Structure
 
 ### Context
 
-The EDI Platform consists of multiple components:
+The EDI Platform consists of multiple components with different:
 
-1. **Shared Libraries**: Core functionality (X12 parser, utilities)
-2. **Function Apps**: Routing, mappers, connectors
-3. **Infrastructure**: Bicep templates
-4. **Databases**: SQL schemas, migrations
-5. **Configuration**: Partner configs, schedules
+1. **Deployment Lifecycles**: Shared libraries vs. function apps vs. configuration
+2. **Team Ownership**: Different teams responsible for different components
+3. **Technology Stacks**: SQL projects, .NET libraries, Azure Functions, JSON configs
+4. **Security Requirements**: Different access controls per component
+5. **CI/CD Complexity**: Independent build and deployment pipelines
 
-**Questions:**
+**Key Questions:**
 
 - Should all components live in a single monorepo?
 - Or should we use separate repositories per component?
 - How do we manage dependencies and versioning?
+- How do developers work across multiple repositories efficiently?
+- What is the optimal GitHub Actions strategy for multi-repo?
 
 ### Decision
 
-**Adopt a multi-repository strategy with:**
+**Adopt a multi-repository strategy with workspace orchestration:**
 
-1. **edi-platform-core**: Shared libraries (NuGet packages)
-2. **edi-routing**: Routing Function App
-3. **edi-mappers**: Mapper Function Apps
-4. **edi-connectors**: Connector Function Apps
-5. **edi-database-controlnumbers**: SQL project (DACPAC)
-6. **edi-partner-configs**: Partner metadata (JSON)
-7. **ai-adf-edi-spec**: Specifications and documentation
+**Individual Repositories (9 active):**
 
-**Workspace Management:** `edi-platform` workspace repo coordinates multi-repo development.
+1. **edi-platform-core**: Shared libraries (NuGet packages), core Azure Functions
+2. **edi-sftp-connector**: SFTP connector Azure Function
+3. **edi-mappers**: Transaction mapper Function Apps (834, 837, 270/271, 835)
+4. **edi-connectors**: Partner integration connector Function Apps
+5. **edi-database-controlnumbers**: Control number database (SQL DACPAC)
+6. **edi-database-eventstore**: Event store database (SQL DACPAC)
+7. **edi-database-sftptracking**: SFTP tracking database (EF Core migrations)
+8. **edi-partner-configs**: Trading partner JSON configurations
+9. **edi-documentation**: Platform documentation (this repository)
+
+**Workspace Orchestration:**
+
+- **edi-platform**: Workspace repository with setup scripts, VS Code workspace file
+- Provides unified development experience across all repositories
+- PowerShell scripts for multi-repo operations (clone, branch, status)
+- Shared VS Code settings and debugging configurations
 
 ### Rationale
 
-#### Why Multi-Repo?
+#### Why Multi-Repository?
 
-**Benefits:**
+**1. Independent Deployment Lifecycles**
 
-| Benefit | Description |
-|---------|-------------|
-| **Independent Releases** | Deploy shared libraries without deploying functions |
-| **Smaller PRs** | Focused changes to specific components |
-| **Clear Ownership** | Each repo has dedicated team |
-| **CI/CD Efficiency** | Build only changed components |
-| **Security** | Different access controls per repo |
+Each component can be deployed independently without affecting others:
 
-**Monorepo Drawbacks (for this project):**
+| Repository | Deployment Cadence | Impact Scope |
+|------------|-------------------|--------------|  
+| **edi-platform-core** | Weekly patches | All dependent repos |
+| **edi-mappers** | Bi-weekly releases | Only mapper functions |
+| **edi-sftp-connector** | Weekly | Only SFTP ingestion |
+| **edi-partner-configs** | Multiple times daily | Only configurations |
+| **edi-database-*** | Monthly migrations | Only database schemas |
 
-- Large repo size (slower clones)
-- All-or-nothing deployments (higher risk)
-- Complex CI/CD (conditionally build subprojects)
-- Conflicting dependency versions
+**Example:** Partner configuration change can be deployed 10x per day without triggering function app builds.
+
+**2. CI/CD Efficiency**
+
+Build only what changed:
+
+```yaml
+# Monorepo Problem: Changes to docs trigger everything
+Changed files: docs/README.md  
+Builds triggered: ✗ All 7 function apps (wasteful)
+Build time: ✗ 30 minutes
+
+# Multi-Repo Solution: Scoped builds
+Changed files: edi-documentation/README.md
+Builds triggered: ✓ None (docs only)
+Build time: ✓ 0 minutes
+```
+
+**Estimated CI/CD Time Savings:** 60% reduction in total build minutes per week.
+
+**3. Clear Team Ownership**
+
+| Repository | Team Owner | Access Level |
+|------------|------------|--------------|  
+| **edi-platform-core** | Platform Team | Write |
+| **edi-mappers** | Integration Team | Write |
+| **edi-database-*** | Database Team | Write |
+| **edi-partner-configs** | Operations Team | Write |
+
+**4. Security & Access Control**
+
+- **Granular permissions**: Partner managers can update configs without code access
+- **Audit trail**: Changes isolated to relevant repository
+- **Compliance**: Separate repos for PHI-adjacent code (easier auditing)
+
+**5. Developer Experience with Workspace**
+
+Despite multiple repos, developers get unified experience:
+
+```powershell
+# One-time setup
+git clone https://github.com/PointCHealth/edi-platform.git
+cd edi-platform
+.\scripts\setup-core.ps1
+
+# Opens VS Code with all repos loaded
+code edi-platform.code-workspace
+```
+
+**VS Code Workspace includes:**
+- All 9 repositories as workspace folders
+- Shared settings (formatting, linting)
+- Unified search across all repos
+- Integrated debugging configurations
+
+#### Why NOT Monorepo?
+
+**Monorepo Drawbacks for EDI Platform:**
+
+| Problem | Impact | Mitigation in Multi-Repo |
+|---------|--------|-------------------------|  
+| **Large repo size** | 500MB+ clone, slow git operations | Each repo <50MB, fast clones |
+| **All-or-nothing deploys** | High risk, long deployments | Deploy only changed components |
+| **Complex CI/CD** | Conditional build logic, matrix builds | Simple per-repo CI/CD |
+| **Conflicting dependencies** | Version conflicts across components | Independent versioning |
+| **Access control** | All-or-nothing access | Granular per-repo permissions |
+
+**Example: Conflicting Dependencies**
+
+```text
+Monorepo Problem:
+- Mappers need X12 library v2.0 (new features)
+- Connectors need X12 library v1.5 (stability)
+- Result: Blocked or forced upgrade
+
+Multi-Repo Solution:
+- edi-mappers: Uses HealthcareEDI.X12 v2.0
+- edi-connectors: Uses HealthcareEDI.X12 v1.5
+- Result: Both teams move at their own pace
+```
 
 ### Alternatives Considered
 

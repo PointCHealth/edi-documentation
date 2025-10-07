@@ -10,9 +10,15 @@
 
 This directory contains the **complete system documentation** for the Healthcare EDI Platform, organized into 18 comprehensive documents covering architecture, operations, transaction flows, testing, and architectural decisions.
 
-**Total Documentation:** ~10,000+ lines across 17 active documents  
-**Coverage:** Ingestion → Processing → Routing → Delivery → Monitoring  
+**Total Documentation:** ~10,600+ lines across 17 active documents + guides  
+**Coverage:** Ingestion → Processing → Routing → Delivery → Monitoring → Deployment  
 **Audience:** Developers, Operators, Architects, Business Stakeholders
+
+**📋 Quick Links:**
+- **[Multi-Repository Strategy Guide](./MULTI-REPO-STRATEGY.md)** - Recommended approach for GitHub organization
+- **[ADR-012: Multi-Repository Strategy](./17-architecture-decisions.md#14-adr-012-multi-repository-strategy)** - Architecture decision record
+- **[Deployment Automation Overview](./19-deployment-automation-overview.md)** - CI/CD architecture
+- **[CI/CD Workflows](./21-cicd-workflows.md)** - GitHub Actions implementation
 
 ---
 
@@ -58,8 +64,9 @@ This directory contains the **complete system documentation** for the Healthcare
 | **15** | Implementation Validation | ~1,677 | Testing strategy, unit/integration/E2E patterns, CI/CD gates, test data | Developers, QA Engineers |
 | **16** | Glossary & Terminology | ~1,177 | EDI terms, X12 segments, HIPAA transactions, Azure services, acronyms | All Team Members |
 | **17** | Architecture Decisions | ~1,450 | 12 key ADRs with rationale, alternatives, consequences, implementation | Architects, Tech Leads |
+| **-** | **MULTI-REPO-STRATEGY** | ~600 | **Complete guide to multi-repository approach (recommended)** | **Architects, Tech Leads, DevOps** |
 
-**Subtotal: ~4,300 lines**
+**Subtotal: ~4,900 lines**
 
 ---
 
@@ -121,9 +128,11 @@ This directory contains the **complete system documentation** for the Healthcare
 2. 17: Architecture Decisions - 12 key ADRs
 3. 03: Routing & Messaging - Integration patterns
 4. Review all component docs (01-10)
+5. **MULTI-REPO-STRATEGY.md** - Complete multi-repository guide
 
 **Design Decisions:**
 - 17: Architecture Decisions - ADRs with rationale
+- **MULTI-REPO-STRATEGY.md** - Repository strategy recommendation
 - 09: Security & Compliance - Security patterns
 - 07: Database Layer - Data persistence strategies
 

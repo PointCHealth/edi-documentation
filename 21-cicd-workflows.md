@@ -43,16 +43,73 @@ graph TB
     D --> N[Health Checks]
 ```
 
-### 1.2 Workflow Naming Convention
+### 1.2 Multi-Repository CI/CD Strategy
+
+**Repository-Specific Workflows**
+
+Each repository has its own GitHub Actions workflows tailored to its deployment needs:
+
+| Repository | CI Workflow | CD Workflow | Deployment Strategy |
+|------------|-------------|-------------|--------------------|
+| **edi-platform-core** | `function-ci.yml` | `function-cd.yml` | Build → NuGet publish → Function deploy |
+| **edi-sftp-connector** | `function-ci.yml` | `function-cd.yml` | Build → Test → Deploy to dev/test/prod |
+| **edi-mappers** | `function-ci.yml` | `function-cd.yml` | Build → Test → Deploy per mapper |
+| **edi-connectors** | `function-ci.yml` | `function-cd.yml` | Build → Test → Deploy per connector |
+| **edi-partner-configs** | `config-ci.yml` | `config-cd.yml` | Validate JSON → Upload to blob |
+| **edi-database-*** | `database-ci.yml` | `database-cd.yml` | Build DACPAC → Deploy with EF migrations |
+| **edi-documentation** | `docs-ci.yml` | N/A | Markdown linting, link validation |
+
+**Cross-Repository Coordination**
+
+For coordinated releases across multiple repositories:
+
+```yaml
+# edi-platform/.github/workflows/orchestrated-deploy.yml
+name: Orchestrated Platform Deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [dev, test, prod]
+
+jobs:
+  deploy-core:
+    uses: PointCHealth/edi-platform-core/.github/workflows/deploy.yml@main
+    with:
+      environment: ${{ inputs.environment }}
+  
+  deploy-mappers:
+    needs: deploy-core
+    uses: PointCHealth/edi-mappers/.github/workflows/deploy.yml@main
+    with:
+      environment: ${{ inputs.environment }}
+  
+  deploy-connectors:
+    needs: deploy-core
+    uses: PointCHealth/edi-sftp-connector/.github/workflows/deploy.yml@main
+    with:
+      environment: ${{ inputs.environment }}
+```
+
+**Benefits of Multi-Repo Workflows:**
+
+- ✅ **Fast builds**: Only build changed components (5 min vs. 30 min)
+- ✅ **Isolated failures**: One repo's broken tests don't block others
+- ✅ **Parallel deploys**: Deploy independent components simultaneously
+- ✅ **Clear ownership**: Each team owns their repo's CI/CD
+- ✅ **Flexible cadence**: Deploy configs 10x/day, functions 1x/week
+
+### 1.3 Workflow Naming Convention
 
 | Pattern | Example | Purpose |
-|---------|---------|---------|
+|---------|---------|---------|  
 | `*-ci.yml` | `infra-ci.yml` | Continuous Integration (PR validation) |
 | `*-cd.yml` | `infra-cd.yml` | Continuous Deployment (environment deployment) |
 | `*-monitoring.yml` | `cost-monitoring.yml` | Scheduled operational tasks |
 | `*-audit.yml` | `security-audit.yml` | Compliance and security checks |
 
-### 1.3 Common Workflow Structure
+### 1.4 Common Workflow Structure
 
 All workflows follow this structure:
 
@@ -410,6 +467,113 @@ jobs:
 
 ## 3. Function App Workflows
 
+### 3.0 NuGet Package Publishing (`publish-nuget.yml`)
+
+**Repository:** `edi-platform-core` only  
+**Purpose:** Publish shared libraries to GitHub Packages for consumption by other repositories
+
+**Triggers:**
+
+- `push` to `main` on paths: `shared/**`, `**/*.csproj`
+- `release` published
+- `workflow_dispatch` (manual)
+
+**Jobs:**
+
+1. **Build & Test** - Compile shared libraries and run tests
+2. **Pack** - Create NuGet packages with symbols
+3. **Publish** - Upload to GitHub Packages
+
+**Key Features:**
+
+- Automatic versioning from csproj
+- Symbol packages for debugging
+- Skip duplicate packages
+- Automatic authentication via `GITHUB_TOKEN`
+- Job summary with published packages
+
+**Sample Workflow:**
+
+```yaml
+name: Publish NuGet Packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'shared/**'
+      - '**/*.csproj'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      
+      - name: Restore Dependencies
+        run: dotnet restore
+      
+      - name: Build Shared Libraries
+        run: dotnet build shared --configuration Release --no-restore
+      
+      - name: Run Tests
+        run: dotnet test shared --configuration Release --no-build --verbosity normal
+      
+      - name: Pack NuGet Packages
+        run: |
+          echo "### 📦 Packing NuGet Packages" >> $GITHUB_STEP_SUMMARY
+          for project in shared/*/; do
+            echo "Packing $project..."
+            dotnet pack "$project" \
+              --configuration Release \
+              --no-build \
+              --output ./packages \
+              --include-symbols \
+              --include-source
+          done
+      
+      - name: List Packages
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Packages Created:**" >> $GITHUB_STEP_SUMMARY
+          ls -1 ./packages/*.nupkg | sed 's|./packages/||' | sed 's|^|- |' >> $GITHUB_STEP_SUMMARY
+      
+      - name: Publish to GitHub Packages
+        run: |
+          dotnet nuget push ./packages/*.nupkg \
+            --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json \
+            --api-key ${{ secrets.GITHUB_TOKEN }} \
+            --skip-duplicate
+      
+      - name: Job Summary
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Published Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "**Feed URL:** https://nuget.pkg.github.com/PointCHealth/index.json" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+```
+
+**Usage in Consumer Repositories:**
+
+Other repositories (edi-sftp-connector, edi-mappers, etc.) consume these packages. See Multi-Repo Strategy documentation for detailed setup.
+
+---
+
 ### 3.1 Function App CI (`function-ci.yml`)
 
 **Purpose:** Build and test Azure Functions on pull requests
@@ -441,6 +605,7 @@ on:
 
 permissions:
   contents: read
+  packages: read  # Required for GitHub Packages
   security-events: write
   pull-requests: write
 
@@ -457,6 +622,8 @@ jobs:
           dotnet-version: '9.0.x'
 
       - name: Restore Dependencies
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Auth for GitHub Packages
         run: dotnet restore
 
       - name: Build

@@ -96,13 +96,31 @@ graph TB
 
 ### 2.2 Repository Strategy
 
-| Repository | Purpose | Deployment Target | Technology |
-|------------|---------|-------------------|------------|
-| **edi-platform-core** | Core Azure Functions (Router, Validator, Orchestrator) | Function Apps | C# .NET 9 Isolated |
-| **edi-mappers** | X12 mappers (837P, 835, 270, 271, etc.) | Function Apps | C# .NET 9 Isolated |
-| **edi-sftp-connector** | SFTP integration connector | Function Apps | C# .NET 9 Isolated |
-| **edi-partner-configs** | Partner configurations, routing rules | Blob Storage | JSON/YAML |
-| **edi-database-*** | Database schemas and migrations | Azure SQL | SQL/Entity Framework |
+**Multi-Repository Approach** (See [ADR-012: Multi-Repository Strategy](./17-architecture-decisions.md#14-adr-012-multi-repository-strategy))
+
+The platform uses **separate repositories** for each major component, enabling:
+- Independent deployment lifecycles
+- Granular access control
+- Focused CI/CD pipelines
+- Clear team ownership
+
+| Repository | Purpose | Deployment Target | Technology | Deployment Frequency |
+|------------|---------|-------------------|------------|---------------------|
+| **edi-platform-core** | Shared libraries, core functions | NuGet + Function Apps | C# .NET 9 | Weekly patches |
+| **edi-sftp-connector** | SFTP integration connector | Function Apps | C# .NET 9 | Weekly |
+| **edi-mappers** | Transaction mappers (834, 837, 270/271, 835) | Function Apps | C# .NET 9 | Bi-weekly |
+| **edi-connectors** | Partner integration connectors | Function Apps | C# .NET 9 | As needed |
+| **edi-partner-configs** | Partner configurations, routing rules | Blob Storage | JSON/YAML | Multiple daily |
+| **edi-database-controlnumbers** | Control number database | Azure SQL | SQL DACPAC | Monthly migrations |
+| **edi-database-eventstore** | Event store database | Azure SQL | SQL DACPAC | Monthly migrations |
+| **edi-database-sftptracking** | SFTP tracking database | Azure SQL | EF Core | Monthly migrations |
+| **edi-documentation** | Platform documentation | GitHub Pages | Markdown | As needed |
+
+**Workspace Orchestration:**
+
+- **edi-platform** repository serves as the orchestrator with setup scripts
+- VS Code workspace file (`.code-workspace`) provides unified development experience
+- PowerShell scripts automate multi-repo operations (clone, branch, status checks)
 
 ### 2.3 Deployment Components
 
