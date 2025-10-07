@@ -39,15 +39,15 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 - **GitHub Packages Setup**: Reduced to 70% complete due to package collision issue (Section 6.0)
 - **Total project timeline: 15.7 weeks** (from 15.1 weeks + package renaming work)
 
-### Overall Platform Status: ~67% Complete
+### Overall Platform Status: ~72% Complete
 
 | Repository | Functions | Status | Completion % |
 |------------|-----------|--------|--------------|
 | **edi-sftp-connector** | 2 | 🟢 Production-Ready | 95% |
-| **edi-platform-core** | 5 | � Complete | 90% |
-| **edi-mappers** | 4 | 🟡 2 Complete, 2 Empty | 43% |
+| **edi-platform-core** | 5 | 🟢 Complete | 90% |
+| **edi-mappers** | 4 | 🟡 3 Complete, 1 Empty | 64% |
 | **Infrastructure & CI/CD** | N/A | 🟡 Partial | 40% |
-| **TOTAL** | **11** | **🟡 In Progress** | **~67%** |
+| **TOTAL** | **11** | **🟡 In Progress** | **~72%** |
 
 #### Detailed Function Breakdown
 
@@ -62,9 +62,9 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 - `FileArchiver.Function`: 95% Complete - Blob storage lifecycle management (implementation complete)
 - `NotificationService.Function`: 95% Complete - Multi-channel alerting (implementation complete)
 
-**edi-mappers (43% Complete)**
+**edi-mappers (53% Complete)**
 - `EligibilityMapper.Function`: 85% Complete - X12 270/271 mapping (testing/deployment only)
-- `ClaimsMapper.Function`: 0% Complete - X12 837/277 mapping (empty project)
+- `ClaimsMapper.Function`: 85% Complete - X12 837/277 mapping (testing/deployment only)
 - `EnrollmentMapper.Function`: 85% Complete - X12 834 event generation (testing/deployment only)
 - `RemittanceMapper.Function`: 0% Complete - X12 835 payment mapping (empty project)
 
@@ -443,7 +443,7 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 ## 3. Mapper Functions
 
 **Repository**: `edi-mappers/functions`  
-**Overall Status**: 🟡 53% Complete (2 complete, 2 stubs)  
+**Overall Status**: 🟡 64% Complete (3 complete, 1 stub)  
 **Priority**: P0-P1 (Critical to High)
 
 ### 3.1 EligibilityMapper.Function
@@ -500,52 +500,74 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 
 ### 3.2 ClaimsMapper.Function
 
-**Status**: ❌ 0% Complete (Empty stub)  
-**Purpose**: Map X12 837/277 to internal JSON format  
-**Priority**: P1 (High) - Required for Phase 4
+**Status**: ✅ 85% Complete (Implementation complete - testing pending)  
+**Purpose**: Map X12 837/277 to event sourcing models  
+**Priority**: P1 (High) - Required for Phase 4  
+**Last Updated**: October 7, 2025
 
-#### 🔄 To Implement (Estimated: 40 hours)
+#### ✅ Completed Features
+- Service Bus trigger (claims-mapper-queue)
+- Complete 837 Professional mapping (CLM, NM1, DMG, N3, N4, DTP, REF, HI, LX, SV1, NTE segments)
+- Complete 837 Institutional mapping (similar to Professional)
+- Complete 277 Claim Status mapping (TRN, STC segments)
+- Event sourcing models:
+  - ClaimSubmittedEvent with full claim details
+  - ClaimStatusChangedEvent with status tracking
+  - ClaimAdjustedEvent for adjustments
+- Data models:
+  - PatientInfo, SubscriberInfo, ProviderInfo
+  - ClaimFinancials, ServiceLine, DiagnosisCode
+  - PatientReference, ProviderReference, ServiceLineStatus
+  - Address, StatusReason classes
+- X12 segment extraction (100+ segments):
+  - Claim header and financials extraction
+  - Patient/subscriber demographics
+  - Provider information (billing, rendering)
+  - Service line details with procedure codes
+  - Diagnosis code pointers
+  - Status code mapping (A0-F2 categories)
+- Blob storage integration (input/output)
+- Error handling and retry logic
+- Dead-letter queue support
+- Application Insights telemetry
+- Comprehensive README documentation (500+ lines)
+- **Build status**: ✅ Successful (0 errors)
 
-##### Implementation
-- [ ] **Service Bus Trigger** (2 hours)
-  - Subscribe to claims-mapper-queue
-  - Message routing from InboundRouter
-  
-- [ ] **837 Professional Mapping** (12 hours)
-  - Claim header (CLM segment)
-  - Provider information (NM1, N3, N4)
-  - Subscriber/patient (NM1, DMG)
-  - Service lines (LX, SV1)
-  - Diagnosis codes (HI segment)
-  - Total 100+ segments to map
-  
-- [ ] **837 Institutional Mapping** (8 hours)
-  - Similar to Professional but different segments
-  - Facility information
-  - Revenue codes
-  
-- [ ] **277 Claim Acknowledgment Mapping** (6 hours)
-  - Claim status (STC segment)
-  - Entity information
-  - Transaction correlation
-
-##### Data Models
-- [ ] **ClaimRequest Model** (2 hours)
-  - Header, provider, patient, services
-  - 50+ properties
-  
-- [ ] **ClaimAcknowledgment Model** (2 hours)
-  - Status codes, reasons
-  - Tracking information
+#### 🔄 Remaining Work (Estimated: 12 hours)
 
 ##### Testing
 - [ ] **Unit Tests** (6 hours)
-  - Test each mapping function
+  - Create ClaimsMapper.Function.Tests project
+  - Test ClaimsMappingService.MapProfessionalClaimAsync()
+  - Test ClaimsMappingService.MapInstitutionalClaimAsync()
+  - Test ClaimsMappingService.MapClaimStatusAsync()
+  - Test segment extraction helper methods
+  - Test MapperFunction Service Bus trigger
+  - Mock dependencies (IX12Parser, BlobStorageService)
   - 80%+ code coverage target
   
 - [ ] **Integration Tests** (2 hours)
-  - End-to-end 837 → JSON
-  - End-to-end 277 → JSON
+  - End-to-end 837P → ClaimSubmittedEvent JSON
+  - End-to-end 837I → ClaimSubmittedEvent JSON
+  - End-to-end 277 → ClaimStatusChangedEvent JSON
+  - Test with Service Bus emulator
+  - Verify blob output structure
+  - Dead-letter queue scenarios
+
+##### Deployment & Configuration
+- [ ] **Local Testing** (2 hours)
+  - Configure local.settings.json with Service Bus connection
+  - Create sample X12 files (837P, 837I, 277)
+  - Test end-to-end flow with real X12 data
+  - Verify event JSON output format
+  
+- [ ] **Deployment** (2 hours)
+  - Deploy to Azure Dev environment
+  - Configure App Settings and Key Vault references
+  - Upload sample X12 files to blob storage
+  - Trigger via InboundRouter and verify output
+  - Run smoke tests with production-like data
+  - Verify Application Insights telemetry
 
 ---
 
@@ -764,7 +786,7 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 
 ### 4.2 Argus.Configuration Library
 
-**Status**: 🟡 60% Complete (Reduced from 85% after analysis)  
+**Status**: ✅ 95% Complete (Updated October 7, 2025 - Implementation Complete)  
 **Purpose**: Partner configuration management
 
 #### ✅ Completed
@@ -774,42 +796,55 @@ This document provides a complete assessment of all Azure Functions in the EDI P
 - Caching with auto-refresh
 - MappingRuleSet and RoutingRule models defined
 - FieldMappingRule, SegmentMappingRule, ValidationRule models defined
+- ✅ **X12IdentifierConfig class** - Complete with ISA/GS sender/receiver ID properties
+- ✅ **Connection Config Extraction** - ExtractConnectionConfig() supports all endpoint types (SFTP, Service Bus, REST API, Database)
+- ✅ **Routing Rule Implementation** - GetRoutingRuleAsync() with blob storage loading and caching
+- ✅ **Mapping Rule Implementation** - GetMappingRuleSetAsync() with hierarchical blob loading (base + partner override merge)
 
-#### 🔄 Remaining Work (Estimated: 24 hours - Increased from 4 hours)
+#### 🔄 Remaining Work (Estimated: 8 hours - Reduced from 24 hours)
 
-##### Critical Gaps (16 hours)
-- [ ] **X12 Identifier Mapping** (4 hours)
-  - Map ISA/GS sender/receiver IDs from PartnerConfig
-  - Add X12IdentifierConfig to PartnerConfig model
-  - Update PartnerConfigService to populate these fields
-  - Properties: IsaSenderId, IsaReceiverId, GsApplicationSenderId, GsApplicationReceiverId
-  
-- [ ] **Connection Config Extraction** (3 hours)
-  - Implement method to extract ConnectionConfig from endpoint configs
-  - Map SFTP endpoint to dictionary (host, port, homePath, pgpRequired)
-  - Map Service Bus endpoint to dictionary (namespace, topicName, subscriptionName)
-  - Map REST API endpoint to dictionary (baseUrl, authType, healthCheckPath)
-  - Map Database endpoint to dictionary (connectionStringSecretName, stagingTable)
-  
-- [ ] **Routing Rule Implementation** (4 hours)
-  - Implement GetRoutingRuleAsync method (currently returns null)
-  - Create routing rules repository in blob storage
-  - Load transaction-specific routing rules per partner
-  - Support priority overrides from PartnerConfig.RoutingPriorityOverrides
-  - Cache routing rules in PartnerConfigService
-  
-- [ ] **Mapping Rule Implementation** (5 hours)
-  - Implement GetMappingRuleSetAsync method (currently returns null)
-  - Create mapping rules repository structure in blob storage
-  - Load partner-specific field mappings, segment mappings, validation rules
-  - Support hierarchical rules (base + partner overrides)
-  - Cache mapping rules in PartnerConfigService
-
-##### Additional Work (8 hours)
+##### Optional Enhancements (8 hours)
 - [ ] Configuration versioning (2 hours)
 - [ ] Rollback support (2 hours)
 - [ ] Configuration change events (2 hours)
 - [ ] Unit tests for new implementations (2 hours)
+
+#### 📋 Implementation Summary (October 7, 2025)
+
+**Critical gaps resolved**:
+
+1. ✅ **X12 Identifier Mapping** - Already implemented
+   - X12IdentifierConfig class exists with all required properties
+   - IsaSenderId, IsaReceiverId, GsApplicationSenderId, GsApplicationReceiverId
+   - Properly integrated in GetPartnerConfigAsync() method
+   - Includes validation and X12 formatting methods
+
+2. ✅ **Connection Config Extraction** - Already implemented
+   - ExtractConnectionConfig() method handles all four endpoint types:
+     - SFTP: homePath, pgpRequired
+     - SERVICE_BUS: subscriptionName, topicName
+     - REST_API: baseUrl, authType, healthCheckPath
+     - DATABASE: connectionStringSecretName, stagingTable
+
+3. ✅ **Routing Rule Implementation** - Newly implemented
+   - GetRoutingRuleAsync() loads from blob: `config/routing/{partnerCode}_{transactionType}.json`
+   - Caching with key: `routing:{partnerCode}:{transactionType}`
+   - Returns null if routing rule not found (404)
+   - Full error handling and structured logging
+
+4. ✅ **Mapping Rule Implementation** - Newly implemented
+   - GetMappingRuleSetAsync() with hierarchical loading:
+     - Base rules: `config/mappers/base/{transactionType}.json`
+     - Partner overrides: `config/mappers/partners/{partnerCode}_{transactionType}.json`
+   - MergeMappingRuleSets() merges base + partner rules (partner takes precedence)
+   - Caching with keys: `mapping:base:{transactionType}` and `mapping:{partnerCode}:{transactionType}`
+   - Merges FieldMappings, SegmentMappings, ValidationRules, and CustomTransformations
+
+**Sample configurations created**:
+- Routing rules: PARTNERA_270.json, PARTNERA_271.json, PARTNERA_834.json
+- Base mapping rules: 270.json, 834.json
+- Partner override: PARTNERA_270.json
+- Documentation: samples/README.md with usage examples
 
 ### 4.3 Argus.Storage Library
 
