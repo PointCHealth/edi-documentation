@@ -119,6 +119,11 @@ graph TB
 | **SFTP Connector Availability** | > 99.9% | < 99.9% | < 99% | Successful timer executions |
 | **Service Bus DLQ Depth** | 0 | > 5 | > 20 | Dead-lettered messages |
 | **Platform Availability** | > 99.9% | < 99.9% | < 99.5% | Uptime percentage |
+| **File Processing Success Rate** | > 99% | < 99% | < 97% | Successfully processed / Total files |
+| **Average File Processing Time** | < 2 minutes | > 2 minutes | > 5 minutes | File received → Validation complete |
+| **Record Validation Failure Rate** | < 0.5% | > 0.5% | > 2% | Failed records / Total records |
+| **Daily File Volume per Partner** | Within baseline ±20% | ±20-40% | > 40% variance | Compared to 30-day average |
+| **Transaction Set Errors** | < 1% | 1-3% | > 3% | Failed transaction sets / Total |
 
 ### Monitoring Costs
 
@@ -685,13 +690,601 @@ traces
 | take 10
 ```
 
+### EDI File Processing Queries
+
+#### Query 20: File Processing Status Summary (Last 24 Hours)
+
+**Purpose:** Track file processing outcomes across all partners
+
+```kusto
+traces
+| where timestamp > ago(24h)
+| where message contains "FileProcessing"
+| extend 
+    status = tostring(customDimensions.FileStatus),
+    partnerCode = tostring(customDimensions.PartnerCode),
+    fileName = tostring(customDimensions.FileName),
+    transactionType = tostring(customDimensions.TransactionType)
+| summarize 
+    TotalFiles = count(),
+    Received = countif(status == "Received"),
+    Validated = countif(status == "Validated"),
+    Processing = countif(status == "Processing"),
+    Completed = countif(status == "Completed"),
+    Failed = countif(status == "Failed"),
+    AvgProcessingTimeMs = avg(toint(customDimensions.ProcessingTimeMs))
+    by partnerCode, transactionType
+| extend SuccessRate = round(Completed * 100.0 / TotalFiles, 2)
+| order by TotalFiles desc
+```
+
+**Expected Output:**
+- Success Rate: >99% for all partners
+- Average Processing Time: <120,000ms (2 minutes)
+- Failed files should be <1% of total
+
+#### Query 21: File Processing Funnel Analysis
+
+**Purpose:** Identify where files drop out of the processing pipeline
+
+```kusto
+let timeRange = 24h;
+traces
+| where timestamp > ago(timeRange)
+| where message has_any ("FileReceived", "FileValidated", "FileParsed", "FileRouted", "FileCompleted")
+| extend 
+    correlationId = tostring(customDimensions.CorrelationId),
+    stage = case(
+        message contains "FileReceived", "1_Received",
+        message contains "FileValidated", "2_Validated",
+        message contains "FileParsed", "3_Parsed",
+        message contains "FileRouted", "4_Routed",
+        message contains "FileCompleted", "5_Completed",
+        "Unknown"
+    )
+| summarize stages = make_set(stage) by correlationId
+| extend 
+    Received = iff(stages contains "1_Received", 1, 0),
+    Validated = iff(stages contains "2_Validated", 1, 0),
+    Parsed = iff(stages contains "3_Parsed", 1, 0),
+    Routed = iff(stages contains "4_Routed", 1, 0),
+    Completed = iff(stages contains "5_Completed", 1, 0)
+| summarize 
+    ReceivedCount = sum(Received),
+    ValidatedCount = sum(Validated),
+    ParsedCount = sum(Parsed),
+    RoutedCount = sum(Routed),
+    CompletedCount = sum(Completed)
+| extend 
+    ValidationDropoff = ReceivedCount - ValidatedCount,
+    ParsingDropoff = ValidatedCount - ParsedCount,
+    RoutingDropoff = ParsedCount - RoutedCount,
+    CompletionDropoff = RoutedCount - CompletedCount
+| project 
+    ReceivedCount,
+    ValidatedCount, ValidationDropoff,
+    ParsedCount, ParsingDropoff,
+    RoutedCount, RoutingDropoff,
+    CompletedCount, CompletionDropoff
+```
+
+**Analysis:** Identify which stage has highest dropout rate for targeted optimization
+
+#### Query 22: File Processing Time Distribution
+
+**Purpose:** Understand file processing performance distribution
+
+```kusto
+traces
+| where timestamp > ago(24h)
+| where message contains "FileCompleted"
+| extend 
+    partnerCode = tostring(customDimensions.PartnerCode),
+    processingTimeMs = toint(customDimensions.ProcessingTimeMs),
+    fileSizeBytes = toint(customDimensions.FileSizeBytes)
+| extend 
+    processingTimeBucket = case(
+        processingTimeMs < 30000, "<30s",
+        processingTimeMs < 60000, "30s-1m",
+        processingTimeMs < 120000, "1m-2m",
+        processingTimeMs < 300000, "2m-5m",
+        processingTimeMs < 600000, "5m-10m",
+        ">10m"
+    ),
+    fileSizeBucket = case(
+        fileSizeBytes < 100000, "<100KB",
+        fileSizeBytes < 1000000, "100KB-1MB",
+        fileSizeBytes < 10000000, "1MB-10MB",
+        fileSizeBytes < 50000000, "10MB-50MB",
+        ">50MB"
+    )
+| summarize FileCount = count() by processingTimeBucket, fileSizeBucket
+| order by processingTimeBucket asc
+```
+
+#### Query 23: Daily File Volume Trend by Partner and Transaction Type
+
+**Purpose:** Track file volume patterns for capacity planning and anomaly detection
+
+```kusto
+traces
+| where timestamp > ago(30d)
+| where message contains "FileReceived"
+| extend 
+    partnerCode = tostring(customDimensions.PartnerCode),
+    transactionType = tostring(customDimensions.TransactionType),
+    fileSizeBytes = tolong(customDimensions.FileSizeBytes)
+| summarize 
+    FileCount = count(),
+    TotalSizeMB = sum(fileSizeBytes) / 1024.0 / 1024.0,
+    AvgFileSizeMB = avg(fileSizeBytes) / 1024.0 / 1024.0
+    by partnerCode, transactionType, bin(timestamp, 1d)
+| render timechart
+    with (title="Daily File Volume by Partner and Transaction Type")
+```
+
+#### Query 24: File Processing Anomaly Detection
+
+**Purpose:** Identify partners with unusual file volume or processing patterns
+
+```kusto
+let baselineDays = 30;
+let analysisDay = 1;
+let baseline = 
+    traces
+    | where timestamp between (ago(baselineDays + analysisDay) .. ago(analysisDay))
+    | where message contains "FileReceived"
+    | extend partnerCode = tostring(customDimensions.PartnerCode)
+    | summarize 
+        AvgDailyFiles = count() / baselineDays,
+        StdDevFiles = stdev(toint(customDimensions.FileSizeBytes))
+        by partnerCode;
+let current = 
+    traces
+    | where timestamp > ago(analysisDay)
+    | where message contains "FileReceived"
+    | extend partnerCode = tostring(customDimensions.PartnerCode)
+    | summarize CurrentDailyFiles = count() by partnerCode;
+baseline
+| join kind=inner (current) on partnerCode
+| extend 
+    VariancePercent = round((CurrentDailyFiles - AvgDailyFiles) * 100.0 / AvgDailyFiles, 2),
+    Status = case(
+        VariancePercent > 40, "⚠️ High Volume",
+        VariancePercent < -40, "⚠️ Low Volume",
+        "✅ Normal"
+    )
+| where Status != "✅ Normal"
+| project partnerCode, AvgDailyFiles, CurrentDailyFiles, VariancePercent, Status
+| order by abs(VariancePercent) desc
+```
+
+### EDI Transaction Set & Record Level Queries
+
+#### Query 25: Transaction Set Processing Statistics
+
+**Purpose:** Track transaction set (ST-SE) level processing metrics
+
+```kusto
+traces
+| where timestamp > ago(24h)
+| where message contains "TransactionSetProcessed"
+| extend 
+    partnerCode = tostring(customDimensions.PartnerCode),
+    transactionType = tostring(customDimensions.TransactionType),
+    transactionSetId = tostring(customDimensions.TransactionSetControlNumber),
+    recordCount = toint(customDimensions.RecordCount),
+    validRecords = toint(customDimensions.ValidRecords),
+    invalidRecords = toint(customDimensions.InvalidRecords),
+    processingStatus = tostring(customDimensions.Status)
+| summarize 
+    TotalTransactionSets = count(),
+    TotalRecords = sum(recordCount),
+    TotalValidRecords = sum(validRecords),
+    TotalInvalidRecords = sum(invalidRecords),
+    SuccessfulSets = countif(processingStatus == "Success"),
+    FailedSets = countif(processingStatus == "Failed")
+    by partnerCode, transactionType
+| extend 
+    RecordValidationRate = round(TotalValidRecords * 100.0 / TotalRecords, 2),
+    TransactionSetSuccessRate = round(SuccessfulSets * 100.0 / TotalTransactionSets, 2)
+| order by TotalRecords desc
+```
+
+**Target Metrics:**
+- Record Validation Rate: >99.5%
+- Transaction Set Success Rate: >99%
+
+#### Query 26: Record-Level Validation Failures by Type
+
+**Purpose:** Identify most common record validation errors
+
+```kusto
+traces
+| where timestamp > ago(7d)
+| where message contains "RecordValidationFailed"
+| extend 
+    partnerCode = tostring(customDimensions.PartnerCode),
+    transactionType = tostring(customDimensions.TransactionType),
+    segmentId = tostring(customDimensions.SegmentId),
+    validationError = tostring(customDimensions.ValidationError),
+    errorCategory = case(
+        validationError contains "required", "Missing Required Field",
+        validationError contains "format", "Invalid Format",
+        validationError contains "length", "Invalid Length",
+        validationError contains "code", "Invalid Code Value",
+        validationError contains "date", "Invalid Date",
+        "Other"
+    )
+| summarize 
+    ErrorCount = count(),
+    AffectedPartners = dcount(partnerCode),
+    SampleError = any(validationError)
+    by errorCategory, transactionType, segmentId
+| order by ErrorCount desc
+| take 20
+```
+
+#### Query 27: Segment-Level Error Distribution
+
+**Purpose:** Identify which EDI segments have highest error rates
+
+```kusto
+traces
+| where timestamp > ago(24h)
+| where message contains "SegmentProcessed"
+| extend 
+    partnerCode = tostring(customDimensions.PartnerCode),
+    transactionType = tostring(customDimensions.TransactionType),
+    segmentType = tostring(customDimensions.SegmentType),
+    segmentStatus = tostring(customDimensions.Status)
+| summarize 
+    TotalSegments = count(),
+    SuccessfulSegments = countif(segmentStatus == "Valid"),
+    FailedSegments = countif(segmentStatus == "Invalid")
+    by transactionType, segmentType
+| extend ErrorRate = round(FailedSegments * 100.0 / TotalSegments, 2)
+| where ErrorRate > 0
+| order by ErrorRate desc, TotalSegments desc
+```
+
+**Common Problem Segments:**
+- NM1 (Name): Format validation errors
+- N3/N4 (Address): Missing or invalid address components
+- REF (Reference): Invalid reference qualifier codes
+- DTP (Date): Invalid date formats
+
+#### Query 28: Transaction Counts by Type and Status
+
+**Purpose:** Comprehensive transaction processing metrics
+
+```kusto
+let timeRange = 24h;
+customMetrics
+| where timestamp > ago(timeRange)
+| where name == "TransactionProcessed"
+| extend 
+    transactionType = tostring(customDimensions.TransactionType),
+    partnerCode = tostring(customDimensions.PartnerCode),
+    status = tostring(customDimensions.Status),
+    loopCount = toint(customDimensions.LoopCount),
+    segmentCount = toint(customDimensions.SegmentCount)
+| summarize 
+    TotalTransactions = count(),
+    SuccessCount = countif(status == "Success"),
+    FailedCount = countif(status == "Failed"),
+    ValidationFailedCount = countif(status == "ValidationFailed"),
+    AvgLoops = avg(loopCount),
+    AvgSegments = avg(segmentCount),
+    TotalSegments = sum(segmentCount)
+    by transactionType, partnerCode
+| extend SuccessRate = round(SuccessCount * 100.0 / TotalTransactions, 2)
+| order by TotalTransactions desc
+```
+
+#### Query 29: Claims Processing Metrics (837 Transactions)
+
+**Purpose:** Detailed metrics for claims transaction processing
+
+```kusto
+traces
+| where timestamp > ago(24h)
+| where message contains "ClaimProcessed"
+| extend 
+    partnerCode = tostring(customDimensions.PartnerCode),
+    claimId = tostring(customDimensions.ClaimId),
+    claimType = tostring(customDimensions.ClaimType),  // Professional, Institutional, Dental
+    claimAmount = todouble(customDimensions.ClaimAmount),
+    serviceLineCount = toint(customDimensions.ServiceLineCount),
+    processingStatus = tostring(customDimensions.Status),
+    validationErrors = toint(customDimensions.ValidationErrorCount)
+| summarize 
+    TotalClaims = count(),
+    AcceptedClaims = countif(processingStatus == "Accepted"),
+    RejectedClaims = countif(processingStatus == "Rejected"),
+    PendingClaims = countif(processingStatus == "Pending"),
+    TotalClaimAmount = sum(claimAmount),
+    AvgClaimAmount = avg(claimAmount),
+    TotalServiceLines = sum(serviceLineCount),
+    AvgServiceLinesPerClaim = avg(serviceLineCount),
+    ClaimsWithErrors = countif(validationErrors > 0)
+    by partnerCode, claimType
+| extend 
+    AcceptanceRate = round(AcceptedClaims * 100.0 / TotalClaims, 2),
+    ErrorRate = round(ClaimsWithErrors * 100.0 / TotalClaims, 2)
+| order by TotalClaims desc
+```
+
+#### Query 30: Enrollment Processing Metrics (834 Transactions)
+
+**Purpose:** Track member enrollment, change, and termination processing
+
+```kusto
+traces
+| where timestamp > ago(24h)
+| where message contains "EnrollmentProcessed"
+| extend 
+    partnerCode = tostring(customDimensions.PartnerCode),
+    actionCode = tostring(customDimensions.MaintenanceTypeCode),
+    actionType = case(
+        actionCode == "021", "Enrollment",
+        actionCode == "001", "Change",
+        actionCode == "024", "Termination",
+        actionCode == "030", "Audit/Compare",
+        "Other"
+    ),
+    memberCount = toint(customDimensions.MemberCount),
+    dependentCount = toint(customDimensions.DependentCount),
+    processingStatus = tostring(customDimensions.Status)
+| summarize 
+    TotalTransactions = count(),
+    TotalMembers = sum(memberCount),
+    TotalDependents = sum(dependentCount),
+    SuccessfulTransactions = countif(processingStatus == "Success"),
+    FailedTransactions = countif(processingStatus == "Failed")
+    by partnerCode, actionType
+| extend 
+    SuccessRate = round(SuccessfulTransactions * 100.0 / TotalTransactions, 2),
+    TotalIndividuals = TotalMembers + TotalDependents
+| order by TotalTransactions desc
+```
+
+### Trading Partner Statistics Queries
+
+#### Query 31: Partner Performance Scorecard
+
+**Purpose:** Comprehensive partner performance metrics for executive reporting
+
+```kusto
+let timeRange = 7d;
+let fileMetrics = 
+    traces
+    | where timestamp > ago(timeRange)
+    | where message contains "FileProcessing"
+    | extend 
+        partnerCode = tostring(customDimensions.PartnerCode),
+        fileStatus = tostring(customDimensions.FileStatus)
+    | summarize 
+        TotalFiles = count(),
+        SuccessfulFiles = countif(fileStatus == "Completed"),
+        FailedFiles = countif(fileStatus == "Failed")
+        by partnerCode;
+let transactionMetrics = 
+    customMetrics
+    | where timestamp > ago(timeRange)
+    | where name == "TransactionProcessed"
+    | extend 
+        partnerCode = tostring(customDimensions.PartnerCode),
+        transactionType = tostring(customDimensions.TransactionType)
+    | summarize 
+        TotalTransactions = count(),
+        TransactionTypes = dcount(transactionType)
+        by partnerCode;
+let latencyMetrics = 
+    traces
+    | where timestamp > ago(timeRange)
+    | where message contains "TransactionCompleted"
+    | extend 
+        partnerCode = tostring(customDimensions.PartnerCode),
+        latencyMs = toint(customDimensions.ProcessingTimeMs)
+    | summarize 
+        AvgLatencyMs = avg(latencyMs),
+        P95LatencyMs = percentile(latencyMs, 95)
+        by partnerCode;
+fileMetrics
+| join kind=inner (transactionMetrics) on partnerCode
+| join kind=inner (latencyMetrics) on partnerCode
+| extend 
+    FileSuccessRate = round(SuccessfulFiles * 100.0 / TotalFiles, 2),
+    AvgTransactionsPerFile = round(todouble(TotalTransactions) / TotalFiles, 1),
+    PerformanceGrade = case(
+        FileSuccessRate >= 99.5 and P95LatencyMs < 300000, "A",
+        FileSuccessRate >= 99.0 and P95LatencyMs < 480000, "B",
+        FileSuccessRate >= 97.0 and P95LatencyMs < 600000, "C",
+        "D"
+    )
+| project 
+    partnerCode,
+    TotalFiles,
+    FileSuccessRate,
+    TotalTransactions,
+    TransactionTypes,
+    AvgTransactionsPerFile,
+    AvgLatencyMs = round(AvgLatencyMs / 1000, 1),
+    P95LatencySec = round(P95LatencyMs / 1000, 1),
+    PerformanceGrade
+| order by FileSuccessRate desc, TotalTransactions desc
+```
+
+**Performance Grading:**
+- Grade A: >99.5% success rate, P95 latency <5 minutes
+- Grade B: >99% success rate, P95 latency <8 minutes
+- Grade C: >97% success rate, P95 latency <10 minutes
+- Grade D: Below threshold
+
+#### Query 32: Partner Transaction Type Matrix
+
+**Purpose:** Identify which transaction types each partner uses
+
+```kusto
+customMetrics
+| where timestamp > ago(30d)
+| where name == "TransactionProcessed"
+| extend 
+    partnerCode = tostring(customDimensions.PartnerCode),
+    transactionType = tostring(customDimensions.TransactionType)
+| summarize TransactionCount = count() by partnerCode, transactionType
+| evaluate pivot(transactionType, sum(TransactionCount))
+| order by partnerCode asc
+```
+
+**Expected Output:** Matrix showing which partners send which transaction types
+
+#### Query 33: Partner Data Quality Score
+
+**Purpose:** Calculate data quality metrics by partner
+
+```kusto
+let validationData = 
+    traces
+    | where timestamp > ago(7d)
+    | where message has_any ("RecordValidationFailed", "RecordValidationPassed")
+    | extend 
+        partnerCode = tostring(customDimensions.PartnerCode),
+        isValid = iff(message contains "Passed", 1, 0)
+    | summarize 
+        TotalRecords = count(),
+        ValidRecords = sum(isValid)
+        by partnerCode;
+let errorData = 
+    traces
+    | where timestamp > ago(7d)
+    | where severityLevel >= 3  // Warning or Error
+    | extend partnerCode = tostring(customDimensions.PartnerCode)
+    | summarize ErrorCount = count() by partnerCode;
+validationData
+| join kind=leftouter (errorData) on partnerCode
+| extend 
+    RecordValidationRate = round(ValidRecords * 100.0 / TotalRecords, 2),
+    ErrorsPerThousandRecords = round(ErrorCount * 1000.0 / TotalRecords, 1),
+    DataQualityScore = round(
+        (RecordValidationRate * 0.7) + 
+        ((100 - (ErrorCount * 100.0 / TotalRecords)) * 0.3),
+        1
+    ),
+    QualityGrade = case(
+        DataQualityScore >= 99, "🌟 Excellent",
+        DataQualityScore >= 98, "✅ Good",
+        DataQualityScore >= 95, "⚠️ Fair",
+        "❌ Poor"
+    )
+| project 
+    partnerCode,
+    TotalRecords,
+    RecordValidationRate,
+    ErrorCount,
+    ErrorsPerThousandRecords,
+    DataQualityScore,
+    QualityGrade
+| order by DataQualityScore desc
+```
+
+#### Query 34: Partner SLA Compliance Report
+
+**Purpose:** Track partner-level SLA compliance for contractual reporting
+
+```kusto
+let slaThreshold = 5m;  // 5 minute SLA
+let timeRange = 30d;
+traces
+| where timestamp > ago(timeRange)
+| where message contains "TransactionCompleted"
+| extend 
+    partnerCode = tostring(customDimensions.PartnerCode),
+    transactionType = tostring(customDimensions.TransactionType),
+    startTime = todatetime(customDimensions.FileReceivedTime),
+    endTime = todatetime(customDimensions.CompletedTime)
+| extend processingDuration = endTime - startTime
+| summarize 
+    TotalTransactions = count(),
+    WithinSLA = countif(processingDuration <= slaThreshold),
+    BeyondSLA = countif(processingDuration > slaThreshold),
+    AvgProcessingTime = avg(processingDuration),
+    P50ProcessingTime = percentile(processingDuration, 50),
+    P95ProcessingTime = percentile(processingDuration, 95),
+    P99ProcessingTime = percentile(processingDuration, 99)
+    by partnerCode, transactionType, bin(timestamp, 1d)
+| extend 
+    SLAComplianceRate = round(WithinSLA * 100.0 / TotalTransactions, 2),
+    ComplianceStatus = case(
+        SLAComplianceRate >= 99.5, "✅ Exceeds SLA",
+        SLAComplianceRate >= 95.0, "✅ Meets SLA",
+        SLAComplianceRate >= 90.0, "⚠️ Below SLA",
+        "❌ SLA Breach"
+    )
+| order by timestamp desc, partnerCode asc
+```
+
+#### Query 35: Partner Activity Heatmap (by Hour of Day)
+
+**Purpose:** Visualize when partners send files for capacity planning
+
+```kusto
+traces
+| where timestamp > ago(14d)
+| where message contains "FileReceived"
+| extend 
+    partnerCode = tostring(customDimensions.PartnerCode),
+    hourOfDay = hourofday(timestamp),
+    dayOfWeek = dayofweek(timestamp)
+| summarize FileCount = count() by partnerCode, hourOfDay, dayOfWeek
+| evaluate pivot(hourOfDay, sum(FileCount))
+| order by partnerCode asc
+```
+
+#### Query 36: Top Partners by Transaction Volume (Current Month)
+
+**Purpose:** Executive dashboard showing highest volume partners
+
+```kusto
+let monthStart = startofmonth(now());
+customMetrics
+| where timestamp >= monthStart
+| where name == "TransactionProcessed"
+| extend 
+    partnerCode = tostring(customDimensions.PartnerCode),
+    partnerName = tostring(customDimensions.PartnerName),
+    transactionType = tostring(customDimensions.TransactionType)
+| summarize 
+    TotalTransactions = count(),
+    TransactionTypes = make_set(transactionType),
+    Enrollments = countif(transactionType == "834"),
+    Claims = countif(transactionType == "837"),
+    EligibilityRequests = countif(transactionType == "270"),
+    Remittances = countif(transactionType == "835")
+    by partnerCode, partnerName
+| extend TransactionTypeList = strcat_array(TransactionTypes, ", ")
+| project 
+    Rank = row_number(),
+    partnerCode,
+    partnerName,
+    TotalTransactions,
+    TransactionTypeList,
+    Enrollments,
+    Claims,
+    EligibilityRequests,
+    Remittances
+| order by TotalTransactions desc
+| take 25
+```
+
 ---
 
 ## Azure SQL Monitoring
 
 ### Database Performance Queries
 
-#### Query 20: Event Store - Event Throughput (Events per Minute)
+#### Query 37: Event Store - Event Throughput (Events per Minute)
 
 **Purpose:** Monitor event append rate to Event Store
 
@@ -1216,7 +1809,7 @@ actions:
 
 ### High Priority Alerts (P2 - 1 Hour Response)
 
-**Alert 5: End-to-End Latency SLA Breach**
+**Alert 7: End-to-End Latency SLA Breach**
 
 ```yaml
 name: "End-to-End Latency Exceeds 5 Minutes"
@@ -2213,6 +2806,21 @@ resource budgetAlert 'Microsoft.Consumption/budgets@2021-10-01' = {
 - [ ] **Review Failed Transactions**
   - Expected failure rate: <0.5%
   - Action if >1%: Create incident ticket
+
+- [ ] **Check File Processing Metrics**
+  - File processing success rate: >99%
+  - Average file processing time: <2 minutes
+  - Action if below target: Review processing funnel
+
+- [ ] **Review Record Validation Statistics**
+  - Record validation rate: >99.5%
+  - Top validation errors identified
+  - Action if <99%: Investigate error patterns by partner
+
+- [ ] **Verify Trading Partner Activity**
+  - All expected partners submitted files (if daily schedule)
+  - No partners showing >40% volume variance
+  - Action if missing: Contact partner success team
 
 - [ ] **Verify SFTP Connector Health**
   - Expected: <5 errors per partner per day

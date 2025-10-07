@@ -1,27 +1,26 @@
-# GitHub Packages - Final Deployment Status
+# GitHub Packages - Updated Package Status
 
-**Date Completed:** October 7, 2025  
-**Deployment Duration:** ~2 hours  
-**Final Status:** ✅ SUCCESS - Fully Operational  
+**Date Updated:** October 7, 2025  
+**Package Rename:** EDI.* → Argus.* (version 1.1.0)  
+**Status:** ⏳ PENDING RE-DEPLOYMENT  
 
 ---
 
-## 🎉 Deployment Summary
+## 📦 Package Renaming Update
 
-GitHub Packages has been successfully configured, deployed, and verified for the EDI Platform. All 6 shared library packages are now published and accessible from GitHub Packages feed.
+All packages have been renamed from EDI.* to Argus.* to resolve a naming collision with an unrelated "Edi.Core" package on nuget.org. The new package version is 1.1.0.
 
-### Published Packages
+### Updated Package List
 
-| Package | Version | Status | Size |
-|---------|---------|--------|------|
-| EDI.Configuration | 1.0.0 | ✅ Published | ~50 KB |
-| EDI.Core | 1.0.0 | ✅ Published | ~75 KB |
-| EDI.Logging | 1.0.0 | ✅ Published | ~30 KB |
-| EDI.Messaging | 1.0.0 | ✅ Published | ~40 KB |
-| EDI.Storage | 1.0.0 | ✅ Published | ~45 KB |
-| EDI.X12 | 1.0.0 | ✅ Published | ~120 KB |
+| Package | Version | Previous Name | Status |
+|---------|---------|---------------|--------|
+| Argus.Configuration | 1.1.0 | EDI.Configuration | ⏳ Ready to Publish |
+| Argus.Core | 1.1.0 | EDI.Core | ⏳ Ready to Publish |
+| Argus.Logging | 1.1.0 | EDI.Logging | ⏳ Ready to Publish |
+| Argus.Messaging | 1.1.0 | EDI.Messaging | ⏳ Ready to Publish |
+| Argus.Storage | 1.1.0 | EDI.Storage | ⏳ Ready to Publish |
+| Argus.X12 | 1.1.0 | EDI.X12 | ⏳ Ready to Publish |
 
-**Total Package Size:** ~360 KB  
 **View Packages:** https://github.com/orgs/PointCHealth/packages
 
 ---

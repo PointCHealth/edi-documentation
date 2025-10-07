@@ -3428,7 +3428,1091 @@ This notice is being provided as required by the Health Insurance Portability an
 
 ---
 
-**Document Status:** Part 3 Complete (Data Protection & Privacy, Threat Protection, Incident Response)  
-**Lines:** ~2,400 total  
-**Next Section:** Compliance Validation, Security Operations, Summary
+## 10. Secure Software Development Lifecycle (SDLC)
+
+### 10.1 SDLC Overview
+
+**Security Integration at Every Phase:**
+
+```mermaid
+flowchart LR
+    A[Requirements] --> B[Design]
+    B --> C[Development]
+    C --> D[Testing]
+    D --> E[Deployment]
+    E --> F[Operations]
+    F --> A
+    
+    A1[Threat Modeling] -.-> A
+    B1[Security Architecture] -.-> B
+    C1[Secure Coding] -.-> C
+    D1[Security Testing] -.-> D
+    E1[Security Gates] -.-> E
+    F1[Monitoring & Response] -.-> F
+```
+
+**Security Activities by Phase:**
+
+| SDLC Phase | Security Activities | Tools | Responsible Team |
+|------------|-------------------|-------|------------------|
+| **Requirements** | Threat modeling, compliance review | Microsoft Threat Modeling Tool | Security + Architects |
+| **Design** | Security architecture review, data flow analysis | Bicep security scanning | Architects + Security |
+| **Development** | Secure coding, code review, secret scanning | GitHub Advanced Security, SonarQube | Developers + Security |
+| **Testing** | SAST, DAST, dependency scanning, penetration testing | CodeQL, OWASP ZAP, Dependabot | QA + Security |
+| **Deployment** | Security gates, approval workflows, configuration validation | GitHub Actions, Azure Policy | DevOps + Security |
+| **Operations** | Vulnerability monitoring, incident response, patch management | Defender for Cloud, Log Analytics | Operations + Security |
+
+### 10.2 Threat Modeling
+
+**STRIDE Analysis for EDI Platform:**
+
+| Threat Category | Asset | Threat Scenario | Mitigation |
+|----------------|-------|-----------------|------------|
+| **Spoofing** | SFTP Authentication | Attacker impersonates partner | SSH public key auth, no passwords |
+| **Tampering** | X12 Files in Transit | Man-in-the-middle attack | TLS 1.2+, certificate pinning |
+| **Repudiation** | Transaction Processing | User denies submitting file | Immutable audit logs, hash chains |
+| **Information Disclosure** | PHI in Blob Storage | Unauthorized access to storage | RBAC, private endpoints, encryption |
+| **Denial of Service** | Service Bus Queues | Message flood attack | Premium tier throttling, rate limits |
+| **Elevation of Privilege** | Azure SQL | SQL injection attack | Parameterized queries, least privilege |
+
+**Threat Model Documentation:**
+
+```markdown
+# EDI Platform Threat Model
+
+## System Overview
+- **System Name:** EDI Platform
+- **Classification:** HIPAA-Regulated PHI Processing System
+- **Security Boundary:** Azure VNet with private endpoints
+
+## Assets
+1. **PHI Data** (Criticality: Critical)
+   - Member names, SSNs, dates of birth, health insurance details
+   - Storage: Blob Storage (encrypted at rest)
+   - Access: Managed identities only, container-scoped RBAC
+
+2. **X12 Control Numbers** (Criticality: High)
+   - Unique transaction identifiers
+   - Storage: Azure SQL (TDE enabled)
+   - Access: Function Apps via managed identity
+
+3. **Partner Credentials** (Criticality: Critical)
+   - SSH private keys, SFTP credentials
+   - Storage: Azure Key Vault (HSM-backed)
+   - Access: SFTP Connector Function only
+
+## Trust Boundaries
+1. **Internet → Azure Edge** (Public boundary)
+2. **Azure Edge → VNet** (Private endpoint boundary)
+3. **VNet → Managed Services** (Service endpoint boundary)
+4. **Function App → Storage** (Managed identity boundary)
+
+## Threats Identified
+[See STRIDE table above]
+
+## Residual Risks
+1. **Insider Threat** (Low likelihood, High impact)
+   - Mitigation: PIM, audit logging, least privilege
+   - Acceptance: Accept risk with monitoring
+
+2. **Zero-Day Vulnerability** (Medium likelihood, High impact)
+   - Mitigation: Rapid patching, Defender for Cloud alerts
+   - Acceptance: Accept risk with incident response plan
+```
+
+### 10.3 Secure Coding Standards
+
+**C# Secure Coding Guidelines:**
+
+#### Input Validation
+
+```csharp
+// ❌ BAD: No validation
+public void ProcessFile(string filePath)
+{
+    File.ReadAllText(filePath);  // Path traversal vulnerability
+}
+
+// ✅ GOOD: Validate and sanitize
+public void ProcessFile(string filePath)
+{
+    // Validate file path is within allowed directory
+    string allowedDirectory = Path.GetFullPath("/data/inbound");
+    string fullPath = Path.GetFullPath(filePath);
+    
+    if (!fullPath.StartsWith(allowedDirectory, StringComparison.OrdinalIgnoreCase))
+    {
+        throw new SecurityException($"Access to path '{filePath}' is denied.");
+    }
+    
+    // Validate file extension
+    string[] allowedExtensions = { ".x12", ".edi", ".txt" };
+    if (!allowedExtensions.Contains(Path.GetExtension(filePath).ToLowerInvariant()))
+    {
+        throw new ArgumentException($"File type '{Path.GetExtension(filePath)}' not allowed.");
+    }
+    
+    File.ReadAllText(fullPath);
+}
+```
+
+#### SQL Injection Prevention
+
+```csharp
+// ❌ BAD: String concatenation (SQL injection)
+public async Task<Member> GetMemberAsync(string memberId)
+{
+    string sql = $"SELECT * FROM Members WHERE MemberId = '{memberId}'";
+    return await _connection.QuerySingleAsync<Member>(sql);
+}
+
+// ✅ GOOD: Parameterized queries
+public async Task<Member> GetMemberAsync(string memberId)
+{
+    string sql = "SELECT * FROM Members WHERE MemberId = @MemberId";
+    return await _connection.QuerySingleAsync<Member>(sql, new { MemberId = memberId });
+}
+
+// ✅ BEST: Stored procedures with parameters
+public async Task<Member> GetMemberAsync(string memberId)
+{
+    return await _connection.QuerySingleAsync<Member>(
+        "usp_GetMember", 
+        new { MemberId = memberId },
+        commandType: CommandType.StoredProcedure
+    );
+}
+```
+
+#### Secrets Management
+
+```csharp
+// ❌ BAD: Hardcoded credentials
+public class BadSftpClient
+{
+    private const string Password = "MyP@ssw0rd123!";  // NEVER DO THIS
+    private const string ConnectionString = "Server=...;Password=abc123";  // NEVER DO THIS
+}
+
+// ✅ GOOD: Key Vault secrets
+public class SecureSftpClient
+{
+    private readonly SecretClient _secretClient;
+    
+    public SecureSftpClient()
+    {
+        var credential = new DefaultAzureCredential();
+        _secretClient = new SecretClient(
+            new Uri("https://kv-edi-prod.vault.azure.net"),
+            credential
+        );
+    }
+    
+    public async Task<string> GetPasswordAsync()
+    {
+        KeyVaultSecret secret = await _secretClient.GetSecretAsync("SftpPassword");
+        return secret.Value;
+    }
+}
+```
+
+#### Error Handling (Avoid Information Disclosure)
+
+```csharp
+// ❌ BAD: Exposes internal details
+public IActionResult ProcessTransaction(string transactionId)
+{
+    try
+    {
+        // Process transaction
+    }
+    catch (Exception ex)
+    {
+        return BadRequest(ex.ToString());  // Exposes stack trace, connection strings!
+    }
+}
+
+// ✅ GOOD: Generic error message, detailed logging
+public IActionResult ProcessTransaction(string transactionId)
+{
+    try
+    {
+        // Process transaction
+    }
+    catch (Exception ex)
+    {
+        _logger.LogError(ex, "Failed to process transaction {TransactionId}", transactionId);
+        return StatusCode(500, new { Error = "An error occurred processing your request." });
+    }
+}
+```
+
+### 10.4 Code Review Security Checklist
+
+**Pre-Merge Security Review:**
+
+- [ ] **Authentication & Authorization**
+  - [ ] Managed identity used for all Azure service authentication
+  - [ ] No hardcoded credentials or API keys
+  - [ ] Least privilege principle applied to RBAC assignments
+  - [ ] No bypass of authentication/authorization checks
+
+- [ ] **Input Validation**
+  - [ ] All user inputs validated (length, format, allowed characters)
+  - [ ] File uploads restricted by size and type
+  - [ ] Path traversal protection for file operations
+  - [ ] X12 segments validated against schema
+
+- [ ] **Data Protection**
+  - [ ] PHI logged only when necessary (prefer correlation IDs)
+  - [ ] Sensitive data encrypted at rest and in transit
+  - [ ] Secure deletion of temporary files
+  - [ ] No PHI in exception messages or stack traces
+
+- [ ] **SQL Security**
+  - [ ] Parameterized queries or stored procedures used
+  - [ ] No dynamic SQL with user input
+  - [ ] Database connection strings in Key Vault
+  - [ ] Minimal database permissions granted
+
+- [ ] **Dependency Security**
+  - [ ] No known vulnerabilities in NuGet packages (Dependabot alerts resolved)
+  - [ ] Package versions pinned (no wildcards)
+  - [ ] Packages sourced from trusted feeds only
+
+- [ ] **Error Handling**
+  - [ ] Generic error messages to clients
+  - [ ] Detailed errors logged securely
+  - [ ] No sensitive data in logs (masked/redacted)
+  - [ ] Proper exception handling (no swallowed exceptions)
+
+- [ ] **Configuration**
+  - [ ] No secrets in appsettings.json or code
+  - [ ] Configuration validated at startup
+  - [ ] Feature flags for risky changes
+  - [ ] Environment-specific settings externalized
+
+### 10.5 GitHub Advanced Security
+
+**Enabled Features:**
+
+#### Code Scanning (CodeQL)
+
+**Purpose:** Automated static analysis to find security vulnerabilities
+
+**Configuration:** `.github/workflows/codeql-analysis.yml`
+
+```yaml
+name: "CodeQL Security Scanning"
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6 AM UTC
+
+permissions:
+  security-events: write
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        language: ['csharp', 'javascript']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+```
+
+**Query Suites:**
+
+| Suite | Description | Use Case |
+|-------|-------------|----------|
+| `security-extended` | All security queries | CI/CD pipeline (PR gates) |
+| `security-and-quality` | Security + code quality | Weekly scheduled scans |
+| `code-scanning` | Default security queries | Pull request validation |
+
+**Custom CodeQL Queries:**
+
+Create custom queries for EDI-specific patterns:
+
+**File:** `.github/codeql/custom-queries.qll`
+
+```ql
+/**
+ * @name Hardcoded PHI in logs
+ * @description Detects logging of potentially sensitive PHI fields
+ * @kind problem
+ * @problem.severity error
+ * @id cs/hardcoded-phi-logging
+ */
+
+import csharp
+
+from MethodAccess logCall, StringLiteral logMessage
+where
+  logCall.getTarget().getName().matches("Log%") and
+  logMessage = logCall.getAnArgument() and
+  (
+    logMessage.getValue().matches("%SSN%") or
+    logMessage.getValue().matches("%DateOfBirth%") or
+    logMessage.getValue().matches("%MemberName%")
+  )
+select logCall, "Potential PHI logging detected: " + logMessage.getValue()
+```
+
+**CodeQL Results Integration:**
+
+- ✅ Results appear in **Security** tab of GitHub repository
+- ✅ Alerts automatically created for new vulnerabilities
+- ✅ Pull requests blocked if critical/high severity issues found
+- ✅ SARIF files uploaded for compliance reporting
+
+#### Secret Scanning
+
+**Purpose:** Prevent credentials from being committed to repositories
+
+**Configuration:** Enabled at organization level
+
+```yaml
+# .github/secret_scanning.yml
+patterns:
+  - name: Azure Storage Account Key
+    pattern: DefaultEndpointsProtocol=https;AccountName=[a-zA-Z0-9]+;AccountKey=[A-Za-z0-9+/=]{88}
+    
+  - name: Azure SQL Connection String
+    pattern: Server=tcp:[^;]+;Initial Catalog=[^;]+;User ID=[^;]+;Password=[^;]+
+    
+  - name: Azure Service Bus Connection String
+    pattern: Endpoint=sb://[^;]+;SharedAccessKeyName=[^;]+;SharedAccessKey=[^;]+
+    
+  - name: SSH Private Key
+    pattern: -----BEGIN (RSA|OPENSSH|DSA|EC|PGP) PRIVATE KEY-----
+```
+
+**Push Protection:**
+
+```json
+{
+  "secret_scanning": {
+    "status": "enabled"
+  },
+  "secret_scanning_push_protection": {
+    "status": "enabled"
+  }
+}
+```
+
+**When a secret is detected:**
+
+1. **Push blocked** - Developer cannot push code
+2. **Alert created** - Security team notified
+3. **Remediation required** - Must remove secret before push succeeds
+4. **Credential rotation** - Rotate compromised secret in Azure
+
+**Bypass Prevention:**
+
+- Organization owners can disable bypass globally
+- Require justification for bypass requests
+- Audit log of all bypass attempts
+
+#### Dependabot
+
+**Purpose:** Automated dependency updates and vulnerability scanning
+
+**Configuration:** `.github/dependabot.yml`
+
+```yaml
+version: 2
+updates:
+  # NuGet dependencies
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "06:00"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "edi-platform-team"
+    labels:
+      - "dependencies"
+      - "security"
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
+    
+    # Auto-merge minor/patch updates
+    target-branch: "develop"
+    
+    # Ignore specific packages
+    ignore:
+      - dependency-name: "Microsoft.AspNetCore.App"
+        update-types: ["version-update:semver-major"]
+    
+    # Group updates
+    groups:
+      azure-sdk:
+        patterns:
+          - "Azure.*"
+      microsoft-extensions:
+        patterns:
+          - "Microsoft.Extensions.*"
+  
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    reviewers:
+      - "devops-team"
+    labels:
+      - "github-actions"
+```
+
+**Vulnerability Alerts:**
+
+| Severity | Response Time | Action |
+|----------|--------------|--------|
+| **Critical** | 24 hours | Emergency patch, immediate deployment |
+| **High** | 3 days | Prioritized fix, deploy with next release |
+| **Medium** | 7 days | Planned fix, include in sprint |
+| **Low** | 30 days | Backlog, address with routine updates |
+
+**Auto-Merge Configuration:**
+
+```yaml
+# .github/workflows/dependabot-auto-merge.yml
+name: Dependabot Auto-Merge
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    
+    steps:
+      - name: Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v1
+      
+      - name: Auto-approve
+        if: |
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr review --approve "$PR_URL"
+        env:
+          PR_URL: ${{github.event.pull_request.html_url}}
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+      
+      - name: Enable auto-merge
+        if: |
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{github.event.pull_request.html_url}}
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+```
+
+**Dependabot Security Updates:**
+
+- ✅ **Automatic PRs** for vulnerabilities in dependencies
+- ✅ **Compatibility scoring** to assess risk of update
+- ✅ **Grouped updates** for related packages (e.g., all Azure SDK packages)
+- ✅ **Auto-merge** for low-risk patch updates (after tests pass)
+- ✅ **Release notes** included in PR description
+
+#### Dependency Review
+
+**Purpose:** Prevent introduction of vulnerable dependencies in pull requests
+
+**Configuration:** `.github/workflows/dependency-review.yml`
+
+```yaml
+name: Dependency Review
+
+on: [pull_request]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
+          deny-licenses: AGPL-1.0-only, AGPL-1.0-or-later, AGPL-3.0-only, GPL-3.0-only
+          comment-summary-in-pr: always
+```
+
+**Enforcement:**
+
+- ⛔ **Block PRs** that add dependencies with moderate+ vulnerabilities
+- ⛔ **Block incompatible licenses** (GPL, AGPL not allowed for proprietary code)
+- ✅ **Comment on PR** with vulnerability summary
+- ✅ **Badge in PR** showing dependency health
+
+### 10.6 Pre-Commit Hooks
+
+**Purpose:** Catch security issues before commit
+
+**Installation:** `.githooks/pre-commit`
+
+```bash
+#!/bin/bash
+# EDI Platform Pre-Commit Security Checks
+
+echo "Running pre-commit security checks..."
+
+# 1. Secret detection (using git-secrets or gitleaks)
+if command -v gitleaks &> /dev/null; then
+    echo "[1/4] Scanning for secrets..."
+    gitleaks protect --staged --verbose
+    if [ $? -ne 0 ]; then
+        echo "❌ Secret detected! Commit blocked."
+        exit 1
+    fi
+    echo "✅ No secrets found"
+fi
+
+# 2. Sensitive file detection
+echo "[2/4] Checking for sensitive files..."
+FORBIDDEN_FILES=(
+    "appsettings.Production.json"
+    "local.settings.json"
+    "*.pfx"
+    "*.p12"
+    "*.key"
+    "*.pem"
+    "*_rsa"
+    "id_rsa"
+)
+
+for pattern in "${FORBIDDEN_FILES[@]}"; do
+    if git diff --cached --name-only | grep -q "$pattern"; then
+        echo "❌ Sensitive file detected: $pattern"
+        exit 1
+    fi
+done
+echo "✅ No sensitive files found"
+
+# 3. TODO/FIXME in security-critical files
+echo "[3/4] Checking for incomplete security code..."
+SECURITY_KEYWORDS=("TODO.*[Ss]ecurity" "FIXME.*[Aa]uth" "HACK.*[Pp]assword")
+for keyword in "${SECURITY_KEYWORDS[@]}"; do
+    if git diff --cached | grep -E "$keyword"; then
+        echo "⚠️  Warning: Incomplete security code detected (keyword: $keyword)"
+        read -p "Continue anyway? (y/N): " confirm
+        if [ "$confirm" != "y" ]; then
+            exit 1
+        fi
+    fi
+done
+echo "✅ No incomplete security code"
+
+# 4. Hardcoded IP addresses or domains
+echo "[4/4] Checking for hardcoded endpoints..."
+if git diff --cached | grep -E '(http://|https://|sftp://)([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})'; then
+    echo "⚠️  Warning: Hardcoded URL detected"
+    read -p "Is this intentional? (y/N): " confirm
+    if [ "$confirm" != "y" ]; then
+        exit 1
+    fi
+fi
+echo "✅ No hardcoded endpoints"
+
+echo "✅ All pre-commit security checks passed!"
+exit 0
+```
+
+**Setup for developers:**
+
+```bash
+# Install pre-commit hooks
+git config core.hooksPath .githooks
+chmod +x .githooks/pre-commit
+
+# Install gitleaks (secret detection)
+choco install gitleaks  # Windows
+brew install gitleaks   # macOS
+```
+
+### 10.7 Security Testing
+
+#### Static Application Security Testing (SAST)
+
+**Tools:**
+
+1. **CodeQL** (GitHub Advanced Security)
+   - Language: C#, JavaScript
+   - Frequency: Every PR + Weekly
+   - Coverage: All repositories
+
+2. **SonarQube** (Optional, for code quality + security)
+   ```yaml
+   # .github/workflows/sonarqube.yml
+   - name: SonarQube Scan
+     uses: sonarsource/sonarqube-scan-action@master
+     env:
+       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+       SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+   ```
+
+3. **Bicep Security Scanning**
+   - PSRule for Azure
+   - Checkov
+   - See Infrastructure CI workflow (Section 2.1)
+
+#### Dynamic Application Security Testing (DAST)
+
+**Tools:**
+
+1. **OWASP ZAP** (for HTTP-triggered functions)
+
+   ```yaml
+   # .github/workflows/dast-zap.yml
+   name: DAST with OWASP ZAP
+   
+   on:
+     schedule:
+       - cron: '0 3 * * 0'  # Weekly Sunday 3 AM
+     workflow_dispatch:
+   
+   jobs:
+     zap-scan:
+       runs-on: ubuntu-latest
+       
+       steps:
+         - name: ZAP Baseline Scan
+           uses: zaproxy/action-baseline@v0.7.0
+           with:
+             target: 'https://func-edi-router-dev.azurewebsites.net'
+             rules_file_name: '.zap/rules.tsv'
+             cmd_options: '-a'
+   ```
+
+2. **Azure Security Benchmark** (automated in Defender for Cloud)
+
+#### Penetration Testing
+
+**Schedule:**
+
+- **Internal:** Quarterly (Security team)
+- **External:** Annual (3rd party firm)
+
+**Scope:**
+
+- ✅ SFTP endpoints (authentication, authorization)
+- ✅ HTTP-triggered functions (input validation, injection)
+- ✅ Service Bus (message tampering)
+- ✅ Blob storage (access control)
+- ✅ Azure SQL (authentication, SQL injection)
+
+**Engagement Rules:**
+
+1. **Notify Azure** - Submit Cloud Penetration Testing notification form
+2. **Approved timeframe** - Business hours only (9 AM - 5 PM ET)
+3. **Production exclusion** - Test in Test environment only
+4. **Rate limiting** - Max 100 requests/minute
+5. **Data protection** - Do not exfiltrate PHI
+
+**Pentest Report Template:**
+
+```markdown
+# Penetration Test Report - EDI Platform
+
+## Executive Summary
+- **Test Date:** [Date]
+- **Tester:** [Name/Firm]
+- **Scope:** [Components tested]
+- **Overall Risk:** [Low/Medium/High]
+
+## Findings
+| ID | Severity | Finding | CVSS | Status |
+|----|----------|---------|------|--------|
+| PT-001 | High | SQL Injection in search endpoint | 8.2 | Fixed |
+| PT-002 | Medium | Weak TLS configuration | 5.3 | Accepted |
+| PT-003 | Low | Verbose error messages | 3.1 | Fixed |
+
+## Recommendations
+1. [Recommendation 1]
+2. [Recommendation 2]
+```
+
+### 10.8 Security Gates in CI/CD
+
+**Pull Request Gates:**
+
+```yaml
+# .github/workflows/security-gate.yml
+name: Security Gate
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  security-gate:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      # Gate 1: Secret scanning
+      - name: TruffleHog Secret Scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+      
+      # Gate 2: Dependency vulnerabilities
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
+      
+      # Gate 3: CodeQL
+      - name: CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+      
+      # Gate 4: Infrastructure security
+      - name: Checkov IaC Scan
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: infra/
+          framework: bicep
+          soft_fail: false  # Block on failures
+      
+      # Gate 5: License compliance
+      - name: License Check
+        run: |
+          dotnet tool install --global dotnet-project-licenses
+          dotnet-project-licenses -i . -j
+          # Fail if GPL/AGPL licenses found
+          if grep -q "GPL" licenses.json; then
+            echo "❌ Incompatible license detected"
+            exit 1
+          fi
+```
+
+**Production Deployment Gates:**
+
+```yaml
+# Production deployment requires:
+jobs:
+  deploy-prod:
+    environment: prod
+    # Gate 1: Manual approval (2 reviewers)
+    # Gate 2: Business hours only
+    # Gate 3: No open critical vulnerabilities
+    
+    steps:
+      - name: Check for Critical Vulnerabilities
+        run: |
+          CRITICAL_COUNT=$(gh api /repos/${{ github.repository }}/dependabot/alerts \
+            --jq '[.[] | select(.state == "open" and .security_advisory.severity == "critical")] | length')
+          
+          if [ $CRITICAL_COUNT -gt 0 ]; then
+            echo "❌ Cannot deploy: $CRITICAL_COUNT critical vulnerabilities open"
+            exit 1
+          fi
+      
+      - name: Verify Security Scans Passed
+        run: |
+          # Check CodeQL scan passed
+          # Check Dependabot alerts resolved
+          # Check IaC scan passed
+```
+
+### 10.9 Security Training
+
+**Required Training:**
+
+| Training | Audience | Frequency | Provider |
+|----------|----------|-----------|----------|
+| **Secure Coding Fundamentals** | All developers | Annual | Internal |
+| **OWASP Top 10** | All developers | Annual | OWASP |
+| **HIPAA Security Awareness** | All team members | Quarterly | Compliance team |
+| **Incident Response** | On-call engineers | Semi-annual | Security team |
+| **Threat Modeling** | Architects | Annual | Microsoft |
+| **Cloud Security (Azure)** | DevOps + Architects | Annual | Microsoft Learn |
+
+**Security Champions Program:**
+
+- Identify 1-2 security champions per team
+- Champions attend monthly security guild meetings
+- Champions review security-sensitive PRs
+- Champions promote security best practices
+
+### 10.10 Compliance Documentation
+
+**Security Artifacts Required:**
+
+1. **System Security Plan (SSP)**
+   - Architecture diagrams
+   - Data flow diagrams
+   - Security control implementation
+   - Risk assessment
+
+2. **Configuration Baseline**
+   - Approved security settings
+   - Bicep templates (infrastructure as code)
+   - Network security group rules
+   - RBAC assignments
+
+3. **Security Assessment Report (SAR)**
+   - CodeQL scan results
+   - Dependabot vulnerability reports
+   - Penetration test findings
+   - Remediation tracking
+
+4. **Plan of Action and Milestones (POA&M)**
+   - Open security findings
+   - Remediation deadlines
+   - Risk acceptance decisions
+   - Compensating controls
+
+5. **Continuous Monitoring Plan**
+   - Log sources (Log Analytics, Application Insights)
+   - Alert definitions
+   - Monitoring frequency
+   - Incident response procedures
+
+---
+
+## 11. Security Operations
+
+### 11.1 Vulnerability Management
+
+**Vulnerability Lifecycle:**
+
+```mermaid
+flowchart TD
+    A[Vulnerability Discovered] --> B{Severity?}
+    B -->|Critical| C[Emergency Response]
+    B -->|High| D[Prioritized Fix]
+    B -->|Medium| E[Planned Fix]
+    B -->|Low| F[Backlog]
+    
+    C --> G[Patch within 24h]
+    D --> H[Patch within 7d]
+    E --> I[Patch within 30d]
+    F --> J[Patch within 90d]
+    
+    G --> K[Deploy to Prod]
+    H --> K
+    I --> K
+    J --> K
+    
+    K --> L[Verify Fix]
+    L --> M[Close Ticket]
+```
+
+**Vulnerability Sources:**
+
+| Source | Frequency | Automated? |
+|--------|-----------|------------|
+| **Dependabot Alerts** | Real-time | Yes |
+| **CodeQL Scans** | PR + Weekly | Yes |
+| **Defender for Cloud** | Continuous | Yes |
+| **Microsoft Security Updates** | Monthly | Manual |
+| **CVE Monitoring** | Daily | Manual |
+| **Penetration Tests** | Quarterly/Annual | Manual |
+
+### 11.2 Patch Management
+
+**Patching Schedule:**
+
+| Component | Patching Frequency | Maintenance Window |
+|-----------|-------------------|--------------------|
+| **Azure Functions Runtime** | Automatic (Azure-managed) | N/A |
+| **NuGet Dependencies** | Weekly (Dependabot PRs) | Business hours |
+| **Azure SQL** | Automatic (Azure-managed) | N/A |
+| **Storage Account** | Automatic (Azure-managed) | N/A |
+| **Application Code** | As needed | Tuesday 2-4 AM ET |
+| **Bicep Templates** | With infrastructure changes | Sunday 2-4 AM ET |
+
+**Emergency Patching (Zero-Day):**
+
+1. **Alert received** (from Microsoft, Defender for Cloud, or security researcher)
+2. **Impact assessment** (within 2 hours)
+3. **Patch development** (within 4-8 hours)
+4. **Test in Dev** (within 1 hour)
+5. **Deploy to Prod** (emergency change approval)
+6. **Verify fix** (smoke tests)
+7. **Post-incident review** (within 24 hours)
+
+### 11.3 Security Monitoring
+
+**24/7 Monitoring:**
+
+See Section 8 (Monitoring & Operations) for detailed monitoring setup.
+
+**Key Security Metrics:**
+
+| Metric | Target | Alert Threshold |
+|--------|--------|----------------|
+| **Failed authentications** | <10/hour | >20/hour |
+| **Unauthorized blob access attempts** | 0 | >5/hour |
+| **CodeQL critical findings** | 0 | >0 |
+| **Dependabot critical alerts** | 0 | >0 |
+| **Mean time to detect (MTTD)** | <15 minutes | >30 minutes |
+| **Mean time to respond (MTTR)** | <1 hour | >2 hours |
+| **Patch compliance** | >95% | <90% |
+
+### 11.4 Access Reviews
+
+**Quarterly Access Review Process:**
+
+1. **Export access report** (RBAC assignments, Key Vault permissions)
+2. **Review with resource owners** (verify users still require access)
+3. **Remove stale access** (ex-employees, completed projects)
+4. **Document review** (audit trail for compliance)
+
+**PowerShell Script for Access Review:**
+
+```powershell
+# Generate quarterly access review report
+param(
+    [string]$ResourceGroupName = "rg-edi-prod"
+)
+
+$report = @()
+
+# Get all role assignments
+$roleAssignments = Get-AzRoleAssignment -ResourceGroupName $ResourceGroupName
+
+foreach ($assignment in $roleAssignments) {
+    $report += [PSCustomObject]@{
+        PrincipalName = $assignment.DisplayName
+        PrincipalType = $assignment.ObjectType
+        Role = $assignment.RoleDefinitionName
+        Scope = $assignment.Scope
+        CreatedOn = $assignment.CreatedOn
+        LastUsed = (Get-AzureADUserSignInActivity -UserId $assignment.ObjectId).LastSignInDateTime
+    }
+}
+
+# Export to CSV
+$report | Export-Csv "AccessReview-$(Get-Date -Format 'yyyy-MM-dd').csv" -NoTypeInformation
+
+Write-Host "Access review report generated: AccessReview-$(Get-Date -Format 'yyyy-MM-dd').csv"
+```
+
+---
+
+## 12. Summary
+
+### 12.1 Security Control Matrix
+
+| Control Category | Controls Implemented | Compliance |
+|-----------------|---------------------|------------|
+| **Access Control** | Managed identities, RBAC, MFA, PIM | ✅ HIPAA §164.312(a)(1) |
+| **Audit & Accountability** | Log Analytics (7yr retention), Application Insights | ✅ HIPAA §164.312(b) |
+| **Encryption** | TLS 1.2+, AES-256, TDE, CMK | ✅ HIPAA §164.312(a)(2)(iv), §164.312(e)(1) |
+| **Authentication** | SSH keys, Azure AD, managed identities | ✅ HIPAA §164.312(d) |
+| **Integrity** | Event sourcing, hash chains, TDE | ✅ HIPAA §164.312(c)(1) |
+| **Network Security** | Private endpoints, NSGs, VNet integration | ✅ Defense in depth |
+| **Threat Protection** | Defender for Cloud, SIEM integration | ✅ Proactive defense |
+| **Incident Response** | Runbooks, 24/7 on-call, breach notification | ✅ HIPAA §164.308(a)(6) |
+| **Secure SDLC** | CodeQL, Dependabot, secret scanning, security gates | ✅ Industry best practice |
+| **Vulnerability Management** | Automated scanning, patching SLAs | ✅ Continuous improvement |
+
+### 12.2 Cost Summary
+
+| Security Service | Monthly Cost | Annual Cost |
+|-----------------|--------------|-------------|
+| **Defender for Cloud** (20 resources × $15) | $300 | $3,600 |
+| **Log Analytics** (50 GB/month × $2.30) | $115 | $1,380 |
+| **Key Vault Premium** (HSM-backed keys) | $25 | $300 |
+| **Application Insights** | $50 | $600 |
+| **GitHub Advanced Security** (per user) | Included in Enterprise | $0 |
+| **Third-party Pentesting** | - | $15,000 |
+| **TOTAL** | **$490/month** | **$20,880/year** |
+
+### 12.3 Security Roadmap
+
+**Phase 1: Foundation (Complete)**
+- ✅ Managed identity implementation
+- ✅ Encryption at rest and in transit
+- ✅ Audit logging (7-year retention)
+- ✅ RBAC configuration
+
+**Phase 2: Automation (In Progress)**
+- ✅ GitHub Advanced Security (CodeQL, secret scanning, Dependabot)
+- ✅ Infrastructure as Code security scanning
+- 🔄 Automated vulnerability remediation (Dependabot auto-merge)
+- 🔄 Pre-commit hooks deployment
+
+**Phase 3: Advanced Protection (Next 6 months)**
+- ⏳ SIEM integration (Sentinel)
+- ⏳ User Entity Behavior Analytics (UEBA)
+- ⏳ Just-in-Time (JIT) VM access
+- ⏳ Customer Lockbox for Azure support
+
+**Phase 4: Maturity (6-12 months)**
+- ⏳ Security orchestration and automated response (SOAR)
+- ⏳ Chaos engineering for security
+- ⏳ AI-powered threat detection
+- ⏳ Bug bounty program
+
+### 12.4 Key Takeaways
+
+1. **Zero Trust Architecture** - Verify every access request, no implicit trust
+2. **Defense in Depth** - Multiple layers of security controls
+3. **Encryption Everywhere** - PHI protected at rest and in transit
+4. **Comprehensive Auditing** - Immutable audit trail for compliance
+5. **Automated Security** - GitHub Advanced Security, Dependabot, CodeQL
+6. **Proactive Monitoring** - 24/7 detection and response
+7. **Secure by Default** - Security built into every phase of SDLC
+8. **Continuous Improvement** - Regular testing, reviews, and updates
+
+---
+
+**Document Complete**  
+**Total Lines:** ~4,800  
+**Last Updated:** October 7, 2025  
+**Version:** 2.0  
+**Next Review:** January 2026 (Quarterly)
 
