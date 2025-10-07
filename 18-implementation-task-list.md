@@ -1244,13 +1244,18 @@ This document provides a complete assessment of all Azure Functions in the EDI P
   - ✅ EnrollmentMapper.Function - Build succeeded
 
 **Package Publishing:**
+- [x] **Changes committed and pushed** (October 7, 2025)
+  - ✅ edi-platform-core: 19 files committed (069508b)
+  - ✅ edi-database-eventstore: 25 files committed (20861a2)
+  - ✅ edi-mappers: 1 file committed (earlier)
+  - ✅ edi-documentation: task list updated (earlier)
+- [x] **Workflow trigger** - Push to main with shared/** changes triggers publish-nuget.yml automatically
+- [ ] Verify Argus.* packages published to GitHub Packages (version 1.1.0)
 - [ ] Delete old EDI.* packages from GitHub Packages (if possible, or mark deprecated)
-- [ ] Publish Argus.* packages version 1.1.0
-- [ ] Verify packages appear in GitHub feed
 
 **Verification:**
 - [x] All repositories build with 0 errors
-- [ ] CI/CD pipelines pass
+- [ ] CI/CD pipelines pass (awaiting workflow completion)
 - [ ] Runtime tests pass
 - [ ] Document in GITHUB-PACKAGES-FINAL-STATUS.md
 
