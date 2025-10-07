@@ -198,7 +198,7 @@ This directory contains the **complete system documentation** for the Healthcare
 - **Monitor**: Logs, metrics, alerts (08)
 
 ### Development Stack
-- **.NET 8**: Function Apps and libraries
+- **.NET 9**: Function Apps and libraries
 - **C# 12**: Primary language
 - **Bicep**: Infrastructure as Code (17: ADR-010)
 - **GitHub Actions**: CI/CD pipelines (17: ADR-011)
