@@ -76,6 +76,139 @@ This structure allows independent versioning and deployment of frontend and back
 - **Caching**: Response caching with cache-control headers
 - **Logging**: Structured logging with Application Insights
 
+### Application Insights Integration Architecture
+
+The Admin Portal integrates directly with Application Insights to display real-time KPIs and transaction monitoring data captured from the EDI platform's Azure Functions and services.
+
+#### Integration Flow
+
+```
+┌─────────────────────────────────────────────────────────┐
+│         Angular Frontend (Admin Portal)                 │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  Dashboard Component                              │  │
+│  │  - KPI Cards (Transactions, Uptime, Error Rate)  │  │
+│  │  - Charts (Transaction Volume, Partner Activity) │  │
+│  │  - Real-time Updates (Auto-refresh every 30s)    │  │
+│  └────────────────────┬─────────────────────────────┘  │
+└────────────────────────┼────────────────────────────────┘
+                         │ HTTP GET /api/v1/dashboard/metrics
+                         │ HTTP GET /api/v1/monitoring/*
+                         │
+┌────────────────────────▼────────────────────────────────┐
+│         .NET Backend API (Admin Portal)                 │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  Controllers                                      │  │
+│  │  ├─ DashboardController                          │  │
+│  │  ├─ MonitoringController                         │  │
+│  │  └─ TransactionController                        │  │
+│  └────────────────────┬─────────────────────────────┘  │
+│                       │                                 │
+│  ┌────────────────────▼─────────────────────────────┐  │
+│  │  ApplicationInsightsService                       │  │
+│  │  - LogsQueryClient (Azure.Monitor.Query)         │  │
+│  │  - Executes KQL queries against Log Analytics    │  │
+│  │  - Maps results to DTOs                          │  │
+│  │  - Implements caching for performance            │  │
+│  └────────────────────┬─────────────────────────────┘  │
+└────────────────────────┼────────────────────────────────┘
+                         │ KQL Query via REST API
+                         │ (using Managed Identity)
+                         │
+┌────────────────────────▼────────────────────────────────┐
+│    Application Insights / Log Analytics Workspace       │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  Telemetry Data with Custom Dimensions:          │  │
+│  │  - PartnerCode                                    │  │
+│  │  - TransactionType (834, 837, 270/271, 835, 997)│  │
+│  │  - FileName, FileSize                            │  │
+│  │  - Processing Times, Duration                    │  │
+│  │  - Success/Failure Status                         │  │
+│  │  - Error Messages and Stack Traces               │  │
+│  └───────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+                         ▲
+                         │ Telemetry from all functions
+                         │ (using EDI.Logging NuGet)
+                         │
+┌────────────────────────┴────────────────────────────────┐
+│    EDI Platform Functions (SFTP, Mappers, Routers)     │
+│    - Using EDI.Logging with TelemetryEnricher          │
+│    - Custom dimensions automatically added              │
+│    - Structured logging with correlation IDs            │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Key Components
+
+**Azure Monitor Query SDK**
+- **NuGet Package**: `Azure.Monitor.Query` (v1.3.0+)
+- **Purpose**: Execute KQL (Kusto Query Language) queries against Application Insights data
+- **Authentication**: Managed Identity (Azure) or DefaultAzureCredential (local development)
+- **Benefits**: Direct access to telemetry without additional infrastructure
+
+**ApplicationInsightsService**
+- **Responsibility**: Query Application Insights for dashboard metrics and KPIs
+- **Key Methods**:
+  - `GetDashboardMetricsAsync()` - Overall system health and transaction counts
+  - `GetTransactionVolumeAsync()` - Transaction volume by type and partner
+  - `GetPartnerPerformanceAsync()` - Partner-specific performance metrics
+  - `GetRecentFailuresAsync()` - Recent errors and failed transactions
+  - `GetProcessingTimesAsync()` - Performance trends and latency metrics
+
+**KQL Query Templates**
+- Leverage the 36+ pre-built KQL queries from monitoring documentation (`08-monitoring-operations.md`)
+- Key queries to implement:
+  - Query 2: Platform Success Rate (system uptime KPI)
+  - Query 5: Transactions by Type and Partner (volume charts)
+  - Query 7: Failed Transactions with Error Details (recent activity)
+  - Query 16: Partner Transaction Volume (partner activity)
+  - Query 31: Partner Performance Scorecard (SLA compliance)
+
+**Custom Dimensions Usage**
+- All queries leverage custom dimensions added by `EDI.Logging` library:
+  - `PartnerCode` - Filter and group by trading partner
+  - `TransactionType` - Segment by X12 transaction type
+  - `FileName` - Track individual file processing
+  - `FileStatus` - Monitor success/failure rates
+  - `ProcessingStage` - Identify bottlenecks in pipeline
+
+**Caching Strategy**
+- Dashboard metrics cached for 30 seconds to reduce query costs
+- Partner performance data cached for 5 minutes
+- Transaction volume data cached for 1 minute
+- Use `IMemoryCache` for in-process caching or Redis for distributed scenarios
+
+**Error Handling**
+- Graceful degradation if Application Insights unavailable
+- Fallback to cached data when queries fail
+- User-friendly error messages in dashboard
+- Automatic retry with exponential backoff
+
+#### Required Configuration
+
+**appsettings.json**
+```json
+{
+  "ApplicationInsights": {
+    "ConnectionString": "InstrumentationKey=...",
+    "WorkspaceId": "your-log-analytics-workspace-id",
+    "QueryTimeoutSeconds": 30,
+    "CacheExpirationSeconds": 30
+  }
+}
+```
+
+**Managed Identity Permissions**
+- Admin Portal App Service requires "Log Analytics Reader" role on Log Analytics Workspace
+- Configured via Azure RBAC: `az role assignment create --role "Log Analytics Reader" --assignee <managed-identity> --scope <workspace-id>`
+
+**Local Development**
+- Use `DefaultAzureCredential` which supports:
+  - Azure CLI authentication (`az login`)
+  - Visual Studio authentication
+  - Environment variables (AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID)
+
 ## Dashboard & Landing Page
 
 ### Overview Widgets
@@ -657,80 +790,300 @@ dotnet run
 
 The Argus Administration Portal implementation is structured in phases to deliver incremental value while managing complexity. The plan prioritizes core functionality first, with authentication and authorization deferred to later phases to facilitate rapid development and testing cycles.
 
+### Application Insights Integration Strategy
+
+**Key Architecture Decision**: The Admin Portal leverages the existing Application Insights infrastructure from the EDI platform to display real-time KPIs and transaction monitoring data without duplicating telemetry storage.
+
+**Integration Approach**:
+- **Azure Monitor Query SDK** (`Azure.Monitor.Query`) for direct KQL query execution
+- **Managed Identity** authentication for secure, credential-less access to Log Analytics
+- **Custom Dimensions** from EDI.Logging library (PartnerCode, TransactionType, FileName, etc.)
+- **In-memory caching** (IMemoryCache) to reduce query costs and improve response times
+- **36+ pre-built KQL queries** from monitoring documentation (`08-monitoring-operations.md`)
+
+**Benefits**:
+- Zero additional infrastructure required
+- Real-time access to telemetry data
+- Consistent metrics across all EDI platform components
+- Leverage existing custom dimensions and structured logging
+- Cost-effective (queries against existing Log Analytics workspace)
+
+**Implementation Timeline**: Phase 1B (Weeks 5-6) focuses exclusively on Application Insights integration before moving to transaction management features.
+
+### Implementation Timeline Summary
+
+```
+Phase 1: Foundation & Core Infrastructure (Weeks 1-4) ✅ COMPLETED
+├─ Sprint 1: Project Setup & Infrastructure ✅
+└─ Sprint 2: Dashboard Foundation (Mock Data) ✅
+
+Phase 1B: Application Insights Integration (Weeks 5-6) 🎯 NEXT
+├─ Sprint 2.5: Backend Integration with Azure Monitor Query SDK
+└─ Sprint 2.6: Azure Infrastructure & Managed Identity Setup
+
+Phase 2: Transaction Management (Weeks 7-10)
+├─ Sprint 3: Transaction Listing & Search
+└─ Sprint 4: Transaction Details & Monitoring
+
+Phase 3: Configuration & Management (Weeks 11-14)
+├─ Sprint 5: Trading Partner Management
+└─ Sprint 6: Workflow Configuration
+
+Phase 4: Monitoring & Analytics (Weeks 15-18)
+├─ Sprint 7: Real-time Monitoring with SignalR
+└─ Sprint 8: Analytics & Custom Reporting
+
+Phase 5: Advanced Features (Weeks 19-22)
+├─ Sprint 9: Mapper Management & Testing
+└─ Sprint 10: Alert & Notification System
+
+Phase 6: Security & Production Readiness (Weeks 23-26)
+├─ Sprint 11: Authentication & Authorization (Azure AD)
+└─ Sprint 12: Security Hardening & Compliance
+
+Phase 7: Performance & Scale (Weeks 27-28)
+└─ Sprint 13: Optimization & Production Deployment
+
+Phase 8: Documentation & Training (Weeks 29-30)
+└─ Sprint 14: Documentation & Handoff
+
+Total Duration: 30 weeks (~7.5 months)
+Production Launch: Week 30
+```
+
+### Key Milestones
+
+| Milestone | Week | Description |
+|-----------|------|-------------|
+| **Foundation Complete** | 4 | Angular + .NET Core apps running with mock data |
+| **Live Data Integration** | 6 | Dashboard displays real Application Insights metrics |
+| **Transaction Management** | 10 | Full transaction viewing and monitoring capability |
+| **Configuration Complete** | 14 | Partners and workflows fully configurable |
+| **Advanced Monitoring** | 18 | Real-time updates and custom analytics |
+| **Feature Complete** | 22 | All advanced features implemented |
+| **Security Audit Passed** | 26 | Production-ready with full authentication |
+| **Production Launch** | 30 | Deployed to production with full documentation |
+
 ### Phase 1: Foundation & Core Infrastructure (Weeks 1-4)
 
-#### Sprint 1: Project Setup & Infrastructure (Week 1-2)
+#### Sprint 1: Project Setup & Infrastructure (Week 1-2) ✅ COMPLETED
 
-**Backend**
-- [ ] Create `edi-admin-portal-backend` repository
-- [ ] Add as Git submodule to `edi-platform` workspace
-- [ ] Create .NET Core 9 Web API project structure
-- [ ] Set up Azure App Service (Development environment)
-- [ ] Configure Azure SQL Database
-- [ ] Implement basic health check endpoints
-- [ ] Set up Application Insights integration
-- [ ] Configure Swagger/OpenAPI documentation
-- [ ] Implement structured logging with Serilog
-- [ ] Set up Entity Framework Core with initial database schema
+**Backend** ✅
+- [x] ✅ Create `edi-admin-portal-backend` repository
+- [x] ✅ Add as Git submodule to `edi-platform` workspace
+- [x] ✅ Create .NET Core 9 Web API project structure
+- [x] ✅ Configure Swagger/OpenAPI documentation (configured at root `/`)
+- [x] ✅ Implement structured logging with Serilog (console sink)
+- [x] ✅ Set up Entity Framework Core with initial database schema
+- [x] ✅ Implement basic health check endpoints (`/health`)
+- [x] ✅ Configure CORS for local development (localhost:4200)
+- [ ] Set up Azure App Service (Development environment) - **DEFERRED**
+- [ ] Configure Azure SQL Database - **DEFERRED**
+- [ ] Set up Application Insights integration - **DEFERRED**
 
-**Frontend**
-- [ ] Create `edi-admin-portal-frontend` repository
-- [ ] Add as Git submodule to `edi-platform` workspace
-- [ ] Create Angular 17+ project with latest CLI
-- [ ] Configure Tailwind CSS and component library
-- [ ] Implement dark theme (VS Code-inspired)
-- [ ] Create base layout structure (header, sidebar, content area)
-- [ ] Implement responsive navigation with hamburger menu
-- [ ] Set up routing configuration with lazy loading
-- [ ] Configure state management (NgRx)
-- [ ] Set up Playwright for E2E testing
+**Frontend** ✅
+- [x] ✅ Create `edi-admin-portal-frontend` repository
+- [x] ✅ Add as Git submodule to `edi-platform` workspace
+- [x] ✅ Create Angular 17+ project with latest CLI (v20.3.5)
+- [x] ✅ Configure Tailwind CSS and component library (v3.4.17, Angular Material v20.2.7)
+- [x] ✅ Implement dark theme (VS Code-inspired with custom color palette)
+- [x] ✅ Create base layout structure (header, sidebar, content area)
+- [x] ✅ Implement responsive navigation with hamburger menu
+- [x] ✅ Set up routing configuration with lazy loading
+- [ ] Configure state management (NgRx) - **DEFERRED** (using services initially)
+- [ ] Set up Playwright for E2E testing - **DEFERRED**
 
-**DevOps**
-- [ ] Set up GitHub repositories (`edi-admin-portal-frontend` and `edi-admin-portal-backend`)
-- [ ] Configure repositories as Git submodules in `edi-platform`
-- [ ] Set up branch protection rules for both repositories
-- [ ] Create CI pipeline for automated builds (separate pipelines per repo)
-- [ ] Configure automated unit testing
-- [ ] Set up code quality checks (linting, formatting)
-- [ ] Configure submodule update automation in main workspace
+**DevOps** ⚠️ PARTIAL
+- [x] ✅ Set up GitHub repositories (`edi-admin-portal-frontend` and `edi-admin-portal-backend`)
+- [x] ✅ Configure repositories as Git submodules in `edi-platform`
+- [x] ✅ Create VS Code tasks for local development (5 tasks with proper working directories)
+- [x] ✅ Create Copilot instructions document (`.github/copilot-instructions-admin-portal.md`)
+- [ ] Set up branch protection rules for both repositories - **PENDING**
+- [ ] Create CI pipeline for automated builds (separate pipelines per repo) - **PENDING**
+- [ ] Configure automated unit testing - **PENDING**
+- [ ] Set up code quality checks (linting, formatting) - **PENDING**
+- [ ] Configure submodule update automation in main workspace - **PENDING**
 
-**Deliverables:**
-- Running application skeleton with basic navigation
-- Health check and monitoring endpoints
-- CI pipeline executing successfully
+**Deliverables:** ✅
+- ✅ Running backend application with Swagger UI at http://localhost:5122
+- ✅ Running frontend application at http://localhost:4200
+- ✅ Frontend project structure with all layout components
+- ✅ Health check and monitoring endpoints functional
+- ⚠️ CI pipeline pending
+- ✅ **RESOLVED**: Tailwind CSS downgraded from v4 to v3.4.17 for Angular compatibility
 
-#### Sprint 2: Dashboard Foundation (Week 3-4)
+**Notes:**
+- Backend successfully built and runs on port 5122
+- Swagger UI accessible at root URL
+- All core components created and frontend now successfully running
+- Tailwind CSS v4 was incompatible with Angular's build system - downgraded to v3.4.17 (stable)
+- VS Code tasks configured with correct working directories to solve PowerShell navigation issues
 
-**Backend**
-- [ ] Implement mock data services for dashboard metrics
-- [ ] Create API endpoints for KPI data
-- [ ] Create API endpoints for transaction volume charts
-- [ ] Create API endpoints for service health status
-- [ ] Implement in-memory caching for frequently accessed data
-- [ ] Add API versioning support
+#### Sprint 2: Dashboard Foundation with Application Insights Integration (Week 3-4) ✅ COMPLETED (with blockers)
 
-**Frontend**
-- [ ] Design and implement dashboard landing page layout
-- [ ] Create reusable chart components (line, bar, donut)
-- [ ] Implement KPI widget components
-- [ ] Create service health status grid
-- [ ] Implement responsive dashboard for desktop/tablet/mobile
-- [ ] Add loading states and error handling
-- [ ] Implement basic filtering and date range selectors
+**Backend** ✅
+- [x] ✅ Implement mock data services for dashboard metrics
+- [x] ✅ Create API endpoints for KPI data (`GET /api/v1/dashboard/metrics`)
+- [x] ✅ Create API endpoints for transaction volume charts (`GET /api/v1/dashboard/transaction-chart`)
+- [x] ✅ Create API endpoints for service health status (`GET /api/v1/dashboard/service-health`)
+- [x] ✅ Create API endpoints for recent activity (`GET /api/v1/dashboard/recent-activity`)
+- [x] ✅ Add API versioning support (URL-based `/api/v1/`)
+- [ ] Implement in-memory caching for frequently accessed data - **DEFERRED**
+
+**Application Insights Integration** 🎯 **NEXT PRIORITY**
+- [ ] Install NuGet packages (`Azure.Monitor.Query` v1.3.0+, `Azure.Identity` v1.10.0+)
+- [ ] Create `ApplicationInsightsService` with LogsQueryClient
+- [ ] Implement KQL queries for dashboard metrics (Query 2: Platform Success Rate)
+- [ ] Implement KQL queries for transaction volume (Query 5: Transactions by Type and Partner)
+- [ ] Implement KQL queries for partner performance (Query 31: Partner Performance Scorecard)
+- [ ] Implement KQL queries for recent failures (Query 7: Failed Transactions with Error Details)
+- [ ] Add result mapping to DTOs (DashboardMetrics, TransactionVolumeData, PartnerPerformance)
+- [ ] Implement in-memory caching (IMemoryCache) with 30-second expiration for metrics
+- [ ] Configure DefaultAzureCredential for local development (az login)
+- [ ] Update DashboardController to use ApplicationInsightsService instead of mock data
+- [ ] Add error handling with graceful fallback to cached data
+- [ ] Add configuration in appsettings.json (WorkspaceId, QueryTimeoutSeconds, CacheExpirationSeconds)
+
+**Frontend** ✅
+- [x] ✅ Design and implement dashboard landing page layout
+- [x] ✅ Implement KPI widget components (4 cards: transactions, partners, uptime, avg processing time)
+- [x] ✅ Create service health status grid placeholder
+- [x] ✅ Implement responsive dashboard for desktop/tablet/mobile
+- [x] ✅ Add loading states and error handling (mock data fallback)
+- [x] ✅ HTTP client integration with backend API
+- [ ] Create reusable chart components (line, bar, donut) - **DEFERRED** (placeholders only)
+- [ ] Implement basic filtering and date range selectors - **DEFERRED**
+- [ ] Add auto-refresh functionality (30-second interval) for live metrics
+
+**Testing** ⚠️
+- [ ] Unit tests for ApplicationInsightsService with mock LogsQueryClient - **PENDING**
+- [ ] Unit tests for dashboard components (80% coverage) - **PENDING**
+- [ ] API integration tests for dashboard endpoints - **PENDING**
+- [ ] Playwright E2E tests for basic navigation - **PENDING**
+
+**Deliverables:** ✅ + 🎯
+- ✅ Backend API fully functional with mock data endpoints
+- ✅ Frontend application running with dashboard components and KPI cards
+- ✅ Full integration testing completed - dashboard loads data from API
+- ✅ Responsive layouts verified on all breakpoints
+- ❌ Automated tests not yet implemented (deferred)
+- 🎯 **NEXT**: Replace mock data with real Application Insights queries
+
+**Notes:**
+- Tailwind CSS v4 compatibility issue resolved by downgrading to v3.4.17
+- Frontend successfully integrated with backend API
+- Dashboard widgets display mock data from backend endpoints
+- All layout components (header, sidebar, main content) working as expected
+- **Ready for Application Insights integration** - mock data structure matches expected AI query results
+
+### Phase 1B: Application Insights Integration & Azure Infrastructure (Weeks 5-6)
+
+#### Sprint 2.5: Application Insights Backend Integration (Week 5)
+
+**Backend Implementation**
+- [ ] Install Azure SDK NuGet packages in `ArgusAdminPortal.API.csproj`:
+  - `Azure.Monitor.Query` (v1.3.0+)
+  - `Azure.Identity` (v1.10.0+)
+- [ ] Create `Services/ApplicationInsightsService.cs` with core methods
+- [ ] Implement `GetDashboardMetricsAsync()` method with Query 2 (Platform Success Rate)
+- [ ] Implement `GetTransactionVolumeAsync()` method with Query 5 (Transactions by Type and Partner)
+- [ ] Implement `GetPartnerPerformanceAsync()` method with Query 31 (Partner Performance Scorecard)
+- [ ] Implement `GetRecentFailuresAsync()` method with Query 7 (Failed Transactions)
+- [ ] Implement `GetProcessingTimesAsync()` method for performance metrics
+- [ ] Create DTOs for query results (DashboardMetrics, TransactionVolumeData, PartnerPerformance)
+- [ ] Add IMemoryCache dependency injection and caching logic
+- [ ] Configure DefaultAzureCredential for multi-environment support
+- [ ] Update DashboardController to inject and use ApplicationInsightsService
+- [ ] Add error handling with fallback to cached data
+- [ ] Add configuration section to appsettings.json and appsettings.Development.json
+
+**Configuration Setup**
+- [ ] Add Application Insights configuration to `appsettings.json`:
+  ```json
+  {
+    "ApplicationInsights": {
+      "WorkspaceId": "your-workspace-id",
+      "QueryTimeoutSeconds": 30,
+      "CacheExpirationSeconds": 30
+    }
+  }
+  ```
+- [ ] Document local development setup (az login requirement)
+- [ ] Create environment-specific configuration for Development/Staging/Production
 
 **Testing**
-- [ ] Unit tests for dashboard components (80% coverage)
-- [ ] API integration tests for dashboard endpoints
-- [ ] Playwright E2E tests for basic navigation
+- [ ] Create unit tests for ApplicationInsightsService with mocked LogsQueryClient
+- [ ] Test caching behavior (cache hits and misses)
+- [ ] Test error handling and fallback scenarios
+- [ ] Test KQL query result mapping to DTOs
+- [ ] Manual integration testing against real Application Insights workspace
 
 **Deliverables:**
-- Functional dashboard with mock data
-- Responsive design working across devices
-- Automated tests passing
+- Fully functional ApplicationInsightsService querying real telemetry data
+- Dashboard endpoints returning live data from Application Insights
+- Comprehensive error handling and caching implemented
+- Unit tests with 80%+ coverage
 
-### Phase 2: Transaction Management (Weeks 5-8)
+**Dependencies:**
+- Requires Application Insights workspace ID from infrastructure team
+- Requires local Azure CLI authentication (az login) for development
 
-#### Sprint 3: Transaction Listing & Search (Week 5-6)
+#### Sprint 2.6: Azure Infrastructure & Managed Identity Setup (Week 6)
+
+**Azure Resources**
+- [ ] Obtain Log Analytics Workspace ID from existing EDI platform infrastructure
+- [ ] Document the shared Application Insights/Log Analytics workspace details
+- [ ] Create Managed Identity for Admin Portal App Service (when deployed)
+- [ ] Assign "Log Analytics Reader" role to Managed Identity:
+  ```bash
+  az role assignment create \
+    --role "Log Analytics Reader" \
+    --assignee <managed-identity-object-id> \
+    --scope /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.OperationalInsights/workspaces/<workspace-name>
+  ```
+
+**Bicep Infrastructure Code**
+- [ ] Create or update Bicep template for Admin Portal App Service
+- [ ] Add Managed Identity configuration to App Service Bicep
+- [ ] Add role assignment for Log Analytics Reader in Bicep
+- [ ] Add Application Insights configuration app settings in Bicep
+- [ ] Document the infrastructure as code changes
+
+**Local Development Setup**
+- [ ] Document Azure CLI authentication requirements (`az login`)
+- [ ] Document Visual Studio authentication option
+- [ ] Create troubleshooting guide for local credential issues
+- [ ] Test DefaultAzureCredential fallback chain locally
+
+**Frontend Updates**
+- [ ] Update dashboard service to handle real-time data structures
+- [ ] Add auto-refresh functionality (30-second interval)
+- [ ] Implement better loading states for KPI cards
+- [ ] Add error messages for when Application Insights is unavailable
+- [ ] Update chart components to handle real data formats
+
+**Documentation**
+- [ ] Create "Application Insights Integration Guide" in project README
+- [ ] Document the KQL queries being used and their purpose
+- [ ] Document caching strategy and expiration times
+- [ ] Create troubleshooting guide for common issues
+- [ ] Document Managed Identity setup for deployment
+
+**Deliverables:**
+- Azure infrastructure configured for Application Insights integration
+- Managed Identity setup complete with appropriate permissions
+- Local development environment fully configured
+- Complete documentation for developers and DevOps
+
+**Success Criteria:**
+- Dashboard displays real transaction data from Application Insights
+- Query response times under 2 seconds (with caching)
+- Graceful degradation when Application Insights unavailable
+- All developers can run locally with az login
+
+### Phase 2: Transaction Management (Weeks 7-10)
+
+#### Sprint 3: Transaction Listing & Search (Week 7-8)
 
 **Backend**
 - [ ] Create Transaction entity and repository
@@ -757,7 +1110,7 @@ The Argus Administration Portal implementation is structured in phases to delive
 - Export functionality
 - Performance validated with large datasets
 
-#### Sprint 4: Transaction Details & Monitoring (Week 7-8)
+#### Sprint 4: Transaction Details & Monitoring (Week 9-10)
 
 **Backend**
 - [ ] Implement transaction detail retrieval with related data
@@ -784,9 +1137,9 @@ The Argus Administration Portal implementation is structured in phases to delive
 - Transaction retry functionality
 - Real-time transaction monitoring
 
-### Phase 3: Configuration & Management (Weeks 9-12)
+### Phase 3: Configuration & Management (Weeks 11-14)
 
-#### Sprint 5: Trading Partner Management (Week 9-10)
+#### Sprint 5: Trading Partner Management (Week 11-12)
 
 **Backend**
 - [ ] Create Trading Partner entity and repository
@@ -814,7 +1167,7 @@ The Argus Administration Portal implementation is structured in phases to delive
 - Connection testing functionality
 - Secure credential management
 
-#### Sprint 6: Workflow Configuration (Week 11-12)
+#### Sprint 6: Workflow Configuration (Week 13-14)
 
 **Backend**
 - [ ] Create Workflow entity and repository
@@ -841,9 +1194,9 @@ The Argus Administration Portal implementation is structured in phases to delive
 - Workflow execution tracking
 - Template-based workflow creation
 
-### Phase 4: Monitoring & Analytics (Weeks 13-16)
+### Phase 4: Monitoring & Analytics (Weeks 15-18)
 
-#### Sprint 7: Real-time Monitoring (Week 13-14)
+#### Sprint 7: Real-time Monitoring (Week 15-16)
 
 **Backend**
 - [ ] Implement SignalR hub for real-time updates
@@ -870,7 +1223,7 @@ The Argus Administration Portal implementation is structured in phases to delive
 - Live service health monitoring
 - Alert notification system
 
-#### Sprint 8: Analytics & Reporting (Week 15-16)
+#### Sprint 8: Analytics & Reporting (Week 17-18)
 
 **Backend**
 - [ ] Implement analytics data aggregation
@@ -898,9 +1251,9 @@ The Argus Administration Portal implementation is structured in phases to delive
 - Custom report builder
 - Scheduled report delivery
 
-### Phase 5: Advanced Features (Weeks 17-20)
+### Phase 5: Advanced Features (Weeks 19-22)
 
-#### Sprint 9: Mapper Management & Testing (Week 17-18)
+#### Sprint 9: Mapper Management & Testing (Week 19-20)
 
 **Backend**
 - [ ] Create Mapper configuration entity
@@ -927,7 +1280,7 @@ The Argus Administration Portal implementation is structured in phases to delive
 - Interactive mapper testing
 - Version control for mappers
 
-#### Sprint 10: Alert & Notification System (Week 19-20)
+#### Sprint 10: Alert & Notification System (Week 21-22)
 
 **Backend**
 - [ ] Create Alert entity and repository
@@ -956,9 +1309,9 @@ The Argus Administration Portal implementation is structured in phases to delive
 - Multi-channel notifications
 - Alert analytics and tracking
 
-### Phase 6: Security & Production Readiness (Weeks 21-24)
+### Phase 6: Security & Production Readiness (Weeks 23-26)
 
-#### Sprint 11: Authentication & Authorization (Week 21-22)
+#### Sprint 11: Authentication & Authorization (Week 23-24)
 
 **Backend**
 - [ ] Configure Azure AD B2C/Entra ID integration
@@ -987,7 +1340,7 @@ The Argus Administration Portal implementation is structured in phases to delive
 - Role-based authorization
 - Secure session management
 
-#### Sprint 12: Security Hardening & Compliance (Week 23-24)
+#### Sprint 12: Security Hardening & Compliance (Week 25-26)
 
 **Backend**
 - [ ] Implement rate limiting
@@ -1023,9 +1376,9 @@ The Argus Administration Portal implementation is structured in phases to delive
 - Compliance documentation
 - Security audit report
 
-### Phase 7: Performance & Scale (Weeks 25-26)
+### Phase 7: Performance & Scale (Weeks 27-28)
 
-#### Sprint 13: Optimization & Production Deployment (Week 25-26)
+#### Sprint 13: Optimization & Production Deployment (Week 27-28)
 
 **Backend**
 - [ ] Implement Redis caching for API responses
@@ -1062,9 +1415,9 @@ The Argus Administration Portal implementation is structured in phases to delive
 - Performance benchmarks met
 - Operational documentation complete
 
-### Phase 8: Documentation & Training (Weeks 27-28)
+### Phase 8: Documentation & Training (Weeks 29-30)
 
-#### Sprint 14: Documentation & Handoff (Week 27-28)
+#### Sprint 14: Documentation & Handoff (Week 29-30)
 
 **Documentation**
 - [ ] Complete API documentation with Swagger
@@ -1175,7 +1528,7 @@ The Argus Administration Portal implementation is structured in phases to delive
 
 ### Post-Launch Activities (Weeks 29+)
 
-#### Immediate Post-Launch (Week 29-30)
+#### Immediate Post-Launch (Week 31-32)
 - [ ] Monitor system performance and stability
 - [ ] Address any critical bugs
 - [ ] Gather user feedback
