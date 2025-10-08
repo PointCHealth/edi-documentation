@@ -37,7 +37,7 @@ This structure allows independent versioning and deployment of frontend and back
 #### Key UI Features
 - **Top Navigation Bar**: Pinned to the top of the viewport
   - Hamburger menu button (left side)
-  - System branding and logo
+  - PointC logo (`logo-color.png`) on the right side for branding
   - User profile and settings (right side)
   - Notification center
   - Quick search functionality
