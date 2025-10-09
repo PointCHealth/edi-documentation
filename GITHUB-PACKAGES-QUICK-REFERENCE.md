@@ -87,6 +87,35 @@ permissions:
 
 ### Local Development Setup
 
+#### Option A: GitHub CLI Managed Credentials (⭐ RECOMMENDED)
+
+```powershell
+# 1. Install GitHub CLI
+winget install GitHub.cli
+
+# 2. Authenticate
+gh auth login
+# Select: GitHub.com → HTTPS → Authenticate via browser
+
+# 3. Verify authentication includes read:packages scope
+gh auth status
+# Should show scopes including: 'read:packages'
+
+# 4. Add scope if missing
+gh auth refresh -h github.com -s read:packages
+
+# 5. Clear any GITHUB_TOKEN environment variable
+Remove-Item Env:\GITHUB_TOKEN -ErrorAction SilentlyContinue
+
+# 6. Restore packages
+dotnet restore
+# Will automatically use GitHub CLI credentials
+```
+
+---
+
+#### Option B: Environment Variable (Legacy)
+
 ```powershell
 # 1. Create Personal Access Token
 # Go to: https://github.com/settings/tokens/new
@@ -106,6 +135,8 @@ dotnet restore
 # Add to: $PROFILE
 $env:GITHUB_TOKEN = 'ghp_your_token_here'
 ```
+
+**⚠️ Note:** If using GitHub CLI (Option A), do NOT set GITHUB_TOKEN environment variable as it will override the CLI credentials.
 
 ### Update Packages
 

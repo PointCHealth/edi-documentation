@@ -25,9 +25,51 @@ Before you can build any consumer repositories (edi-sftp-connector, edi-mappers,
 
 ---
 
-## Step 2: Configure PowerShell (2 minutes)
+## Step 2: Configure Authentication (2 minutes)
 
-### Option A: Add to Profile (Recommended - Persists across sessions)
+### Option A: GitHub CLI Managed Credentials (⭐ RECOMMENDED)
+
+**Benefits:**
+- ✅ More secure (credentials stored in system keyring)
+- ✅ Automatic scope management
+- ✅ No manual token management
+- ✅ Works for both NuGet restore and GitHub operations
+
+```powershell
+# Install GitHub CLI (if not already installed)
+winget install GitHub.cli
+
+# Authenticate with GitHub
+gh auth login
+# Select: GitHub.com → HTTPS → Authenticate via browser
+
+# Verify authentication and scopes
+gh auth status
+# Should show: "Logged in to github.com account <username> (keyring)"
+# Should include scopes: 'repo', 'read:packages', 'workflow'
+
+# If you need to add scopes:
+gh auth refresh -h github.com -s repo -s read:packages -s workflow
+
+# ⚠️ IMPORTANT: Clear any existing GITHUB_TOKEN environment variable
+# This ensures GitHub CLI uses managed credentials, not env var
+Remove-Item Env:\GITHUB_TOKEN -ErrorAction SilentlyContinue
+```
+
+**How it works:** GitHub CLI stores credentials securely in your system's keyring. When NuGet or other tools need authentication, they use the GitHub CLI credential helper automatically.
+
+---
+
+### Option B: PowerShell Environment Variable (Legacy)
+
+**Use this if:**
+- You cannot install GitHub CLI
+- You prefer manual token management
+- You're using automation scripts
+
+#### Option B1: Add to Profile (Persists across sessions)
+
+**⚠️ WARNING:** If you use GitHub CLI (Option A), skip this section and remove any GITHUB_TOKEN from your profile.
 
 ```powershell
 # Open PowerShell profile
@@ -73,6 +115,20 @@ dotnet restore
 # ✅ Restoring packages from GitHub Packages
 # ✅ No authentication errors
 ```
+
+### How NuGet Authentication Works
+
+**With GitHub CLI (Recommended):**
+1. NuGet tries to read `%GITHUB_TOKEN%` environment variable
+2. If not set, NuGet uses Git Credential Manager (GCM)
+3. GCM queries GitHub CLI for credentials from keyring
+4. Credentials are used transparently (no prompt)
+
+**With Environment Variable (Legacy):**
+1. NuGet reads `%GITHUB_TOKEN%` directly
+2. Uses the token value from your environment/profile
+
+**The nuget.config setup supports both methods automatically!**
 
 ---
 

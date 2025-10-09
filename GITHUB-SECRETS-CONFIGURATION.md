@@ -50,7 +50,7 @@ Use the existing configuration script to set up all repositories at once:
 cd c:\repos\edi-platform\scripts
 
 # Run the configuration script
-.\configure-github-variables.ps1
+.\configure-github-variables.py
 
 # Follow the prompts to enter the Azure credentials provided by operations
 ```
@@ -427,3 +427,4 @@ See [20-github-actions-setup.md](./20-github-actions-setup.md) for detailed OIDC
 **Document Version:** 1.0  
 **Last Updated:** October 7, 2025  
 **Next Review:** After successful initial deployment or when credentials change
+
