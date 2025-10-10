@@ -136,8 +136,9 @@ Schema: [controlnumbers]
 
 Schema: [eventstore]
   - Repository: edi-database-eventstore
-  - Tables: DomainEvent, TransactionBatch, Member, Enrollment, EventSnapshot
-  - Purpose: Event sourcing for 834 Enrollment Management
+  - Tables: DomainEvent, TransactionBatch, Member, Enrollment, EventSnapshot, Claim, ClaimServiceLine, PharmacyClaim, etc.
+  - Purpose: Event sourcing for EDI transaction management with projections
+  - Implementation: EF Core migrations
 
 Schema: [sftptracking]
   - Repository: edi-database-sftptracking
@@ -164,39 +165,32 @@ Encryption:
 ### Repository Architecture
 
 ```
-edi-database-controlnumbers/              # ACTIVE (DACPAC)
-├── EDI.ControlNumbers.Database/
-│   ├── Tables/
-│   │   ├── ControlNumberCounters.sql
-│   │   └── ControlNumberAudit.sql
-│   ├── StoredProcedures/
-│   │   └── usp_GetNextControlNumber.sql
-│   ├── Scripts/
-│   │   ├── Script.PreDeployment.sql
-│   │   └── Script.PostDeployment.sql
-│   └── EDI.ControlNumbers.Database.sqlproj
+edi-database-controlnumbers/              # ACTIVE (EF Core Migrations)
+├── EDI.ControlNumbers.Migrations/
+│   ├── Entities/
+│   │   ├── ControlNumberCounter.cs
+│   │   └── ControlNumberAudit.cs
+│   ├── Migrations/
+│   │   └── [EF Core migration files]
+│   ├── ControlNumbersDbContext.cs
+│   └── EDI.ControlNumbers.Migrations.csproj
 └── README.md
 
-edi-database-eventstore/                   # DEPRECATED (DACPAC)
-├── EDI.EventStore.Database/
-│   ├── Tables/                            # REFERENCE ONLY
-│   ├── Views/
-│   ├── StoredProcedures/
-│   └── EDI.EventStore.Database.sqlproj    # Build issues
+edi-database-eventstore/                   # ACTIVE (EF Core Migrations)
+├── EDI.EventStore.Migrations/
+│   ├── Entities/
+│   │   ├── DomainEvent.cs
+│   │   ├── TransactionBatch.cs
+│   │   ├── Member.cs
+│   │   ├── Enrollment.cs
+│   │   └── EventSnapshot.cs
+│   ├── Migrations/
+│   ├── EventStoreDbContext.cs
+│   └── EDI.EventStore.Migrations.csproj
+├── Views/
+│   ├── ClaimViews.sql
+│   └── PharmacyClaimViews.sql
 └── README.md
-
-ai-adf-edi-spec/                           # ACTIVE (EF Core - Event Store)
-└── infra/ef-migrations/
-    └── EDI.EventStore.Migrations/
-        └── EDI.EventStore.Migrations/
-            ├── Data/
-            │   └── EventStoreDbContext.cs  # DbContext
-            ├── Entities/
-            │   ├── DomainEvent.cs
-            │   ├── TransactionBatch.cs
-            │   ├── Member.cs
-            │   ├── Enrollment.cs
-            │   └── EventSnapshot.cs
             ├── Migrations/
             │   ├── 20251006054724_AddDefaultConstraints.cs
             │   ├── 20251006054857_AddRemainingDefaults.cs
@@ -235,7 +229,7 @@ Migrated Event Store to Entity Framework Core 9.0 code-first migrations while re
 - **October 5, 2024** - Decision to migrate Event Store to EF Core
 - **October 6, 2024** - EF Core migrations created and tested
 - **October 10, 2024** - Production deployment of EF Core Event Store
-- **October 15, 2024** - edi-database-eventstore marked as DEPRECATED
+- **October 15, 2024** - edi-database-eventstore migrated to EF Core migrations
 
 **Benefits:**
 - Better source control (C# files vs. XML)
@@ -544,35 +538,36 @@ The Control Number Store uses **optimistic concurrency** via the `RowVersion` co
 - Automatic retry with exponential backoff
 - Audit trail of all assignments
 
-### DACPAC Deployment Process
+### EF Core Migrations Deployment Process
 
-The Control Number Store is deployed using DACPAC (Data-Tier Application Package):
+The Control Number Store is deployed using Entity Framework Core Migrations:
 
-**Build Command:**
+**Apply Migrations Command:**
 ```powershell
-# Build .sqlproj to generate .dacpac
-dotnet build EDI.ControlNumbers.Database.sqlproj --configuration Release
+# Apply migrations to local/development database
+cd EDI.ControlNumbers.Migrations
+dotnet ef database update
+
+# Deploy to specific database with connection string
+dotnet ef database update --connection "Server=localhost;Database=EDI_ControlNumbers;Integrated Security=true;"
 ```
 
-**Deploy Command:**
+**Generate SQL Script for Production:**
 ```powershell
-# Deploy .dacpac to Azure SQL using SqlPackage.exe
-SqlPackage.exe /Action:Publish `
-    /SourceFile:"bin\Release\EDI.ControlNumbers.Database.dacpac" `
-    /TargetServerName:"edi-controlnumbers-prod.database.windows.net" `
-    /TargetDatabaseName:"edi-controlnumbers" `
-    /TargetUser:"admin@domain.com" `
-    /AccessToken:"$(az account get-access-token --resource https://database.windows.net --query accessToken -o tsv)"
+# Generate idempotent SQL script (safe to run multiple times)
+dotnet ef migrations script --idempotent -o deployment.sql
+
+# Deploy to Azure SQL using generated script
+# Execute deployment.sql via Azure DevOps pipeline or manually
 ```
 
 **CI/CD Pipeline (GitHub Actions):**
 ```yaml
-- name: Deploy Control Number Store DACPAC
+- name: Deploy Control Number Store Migrations
   run: |
-    SqlPackage.exe /Action:Publish `
-      /SourceFile:"EDI.ControlNumbers.Database.dacpac" `
-      /TargetConnectionString:"${{ secrets.SQL_CONTROLNUMBERS_CONNECTION_STRING }}" `
-      /p:BlockOnPossibleDataLoss=True
+    cd EDI.ControlNumbers.Migrations
+    dotnet ef database update --connection "${{ secrets.SQL_CONTROLNUMBERS_CONNECTION_STRING }}"
+    # Or generate and execute idempotent script for production
 ```
 
 ---

@@ -56,7 +56,7 @@ Each repository has its own GitHub Actions workflows tailored to its deployment 
 | **edi-mappers** | `function-ci.yml` | `function-cd.yml` | Build → Test → Deploy per mapper |
 | **edi-connectors** | `function-ci.yml` | `function-cd.yml` | Build → Test → Deploy per connector |
 | **edi-partner-configs** | `config-ci.yml` | `config-cd.yml` | Validate JSON → Upload to blob |
-| **edi-database-*** | `database-ci.yml` | `database-cd.yml` | Build DACPAC → Deploy with EF migrations |
+| **edi-database-*** | `database-ci.yml` | `database-cd.yml` | Build DACPAC (control numbers) OR Run EF Core migrations (eventstore, sftptracking) → Deploy |
 | **edi-documentation** | `docs-ci.yml` | N/A | Markdown linting, link validation |
 
 **Cross-Repository Coordination**

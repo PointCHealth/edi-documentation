@@ -193,7 +193,9 @@ Event Store database schema using DACPAC (SQL Server Database Project) - replace
 
 - Domain models: Transaction, Partner, ControlNumber, FileTracking
 
-- Result pattern and common abstractions**Key Components:****Note:** This database schema has been replaced by EF Core migrations in the `ai-adf-edi-spec` repository. The EF Core approach provides better source control, easier deployment, and resolved build issues with the DACPAC SDK.
+- Result pattern and common abstractions**Key Components:**
+
+**Note:** This database schema uses EF Core migrations for better source control, easier deployment, and improved build compatibility.
 
 
 
@@ -481,7 +483,7 @@ Control Numbers database schema using SQL Server Database Project (DACPAC) for X
 
 
 
----**Purpose:** Transaction type-specific mapping services for EDI X12 transactions| edi-database-eventstore | Event Store DACPAC schema (deprecated) | SQL/DACPAC | ✅ Pushed |
+---**Purpose:** Transaction type-specific mapping services for EDI X12 transactions| edi-database-eventstore | Event Store EF Core migrations | SQL/EF Core | ✅ Pushed |
 
 
 
@@ -963,7 +965,7 @@ Each partner configuration file includes:   - Document development workflows
 
 ```- **Reason:** Microsoft.Build.Sql DACPAC SDK has persistent build issues
 
-PointCHealth GitHub Organization- **Replacement:** EF Core migrations in ai-adf-edi-spec repository
+PointCHealth GitHub Organization- **Implementation:** EF Core migrations in edi-database-eventstore repository
 
 ├── Core Infrastructure (3 repos)
 
@@ -1027,7 +1029,7 @@ PointCHealth GitHub Organization- **Replacement:** EF Core migrations in ai-adf-
 
 │   ├── edi-data-platform (ADF pipelines)
 
-**CI/CD:**│   ├── edi-database-eventstore (DACPAC - deprecated) ⭐ NEW
+**CI/CD:**│   ├── edi-database-eventstore (EF Core migrations) ⭐ NEW
 
 │   └── edi-database-controlnumbers (DACPAC - active) ⭐ NEW
 
@@ -1069,7 +1071,7 @@ PointCHealth GitHub Organization- **Replacement:** EF Core migrations in ai-adf-
 
    - Automated dependency updates for security patchescd C:\repos\edi-database-eventstore
 
-gh repo create PointCHealth/edi-database-eventstore --private --description "Event Store database schema using DACPAC (SQL Server Database Project) - replaced by EF Core migrations in ai-adf-edi-spec" --source=. --remote=origin --push
+gh repo create PointCHealth/edi-database-eventstore --private --description "Event Store database schema using EF Core migrations for event sourcing" --source=. --remote=origin --push
 
 3. **Documentation:**
 

@@ -2681,7 +2681,7 @@ The EDI Platform consists of multiple components with different:
 3. **edi-mappers**: Transaction mapper Function Apps (834, 837, 270/271, 835)
 4. **edi-connectors**: Partner integration connector Function Apps
 5. **edi-database-controlnumbers**: Control number database (SQL DACPAC)
-6. **edi-database-eventstore**: Event store database (SQL DACPAC)
+6. **edi-database-eventstore**: Event store database (EF Core migrations)
 7. **edi-database-sftptracking**: SFTP tracking database (EF Core migrations)
 8. **edi-partner-configs**: Trading partner JSON configurations
 9. **edi-documentation**: Platform documentation (this repository)

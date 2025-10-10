@@ -215,7 +215,7 @@ edi-platform/                          # Main workspace repository
 ├── edi-admin-portal-frontend/         # Submodule: Admin Portal Angular app
 ├── edi-azure-infrastructure/          # Submodule: Bicep/Terraform infrastructure
 ├── edi-database-controlnumbers/       # Submodule: Control Numbers DB
-├── edi-database-eventstore/           # Submodule: Event Store DB
+├── edi-database-eventstore/           # Submodule: Event Store DB (EF Core migrations)
 ├── edi-database-sftptracking/         # Submodule: SFTP Tracking DB
 ├── edi-documentation/                 # Submodule: Platform documentation
 ├── edi-mappers/                       # Submodule: EDI mapper functions
@@ -706,15 +706,18 @@ func start
 #### Control Numbers Database
 
 ```powershell
-cd edi-database-controlnumbers/EDI.ControlNumbers.Database
-dotnet build
+cd edi-database-controlnumbers/EDI.ControlNumbers.Migrations
+dotnet restore
+dotnet ef database update
+# Or with custom connection:
+# dotnet ef database update --connection "Server=localhost;Database=EDI_ControlNumbers;Integrated Security=true;"
 ```
 
 #### Event Store Database
 
 ```powershell
-cd edi-database-eventstore/EDI.EventStore.Database
-dotnet build
+cd edi-database-eventstore/EDI.EventStore.Migrations
+dotnet ef database update
 ```
 
 #### SFTP Tracking Database (EF Core Migrations)

@@ -86,8 +86,8 @@ edi-database-controlnumbers/
         └── *.sql
 
 edi-database-eventstore/
-  EDI.EventStore.Database/
-    ├── EDI.EventStore.Database.sqlproj  ❌ (Microsoft.Build.Sql SDK)
+  EDI.EventStore.Migrations/  ✅ ACTIVE
+    ├── EDI.EventStore.Migrations.csproj  (Microsoft.NET.Sdk)
     ├── Tables/
     │   └── *.sql
     ├── Views/
@@ -111,8 +111,7 @@ edi-database-controlnumbers/
     └── README.md
 
 edi-database-eventstore/
-  EDI.EventStore.Database/  (kept for reference)
-  EDI.EventStore.Migrations/  ✅ NEW
+  EDI.EventStore.Migrations/  ✅ ACTIVE
     ├── EDI.EventStore.Migrations.csproj  (Microsoft.NET.Sdk)
     ├── EventStoreDbContext.cs
     ├── Entities/
@@ -122,7 +121,7 @@ edi-database-eventstore/
     │   ├── Member.cs
     │   ├── Enrollment.cs
     │   └── EventSnapshot.cs
-    ├── Migrations/  (will be created on first migration)
+    ├── Migrations/
     └── README.md
 ```
 

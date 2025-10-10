@@ -112,7 +112,7 @@ The platform uses **separate repositories** for each major component, enabling:
 | **edi-connectors** | Partner integration connectors | Function Apps | C# .NET 9 | As needed |
 | **edi-partner-configs** | Partner configurations, routing rules | Blob Storage | JSON/YAML | Multiple daily |
 | **edi-database-controlnumbers** | Control number database | Azure SQL | SQL DACPAC | Monthly migrations |
-| **edi-database-eventstore** | Event store database | Azure SQL | SQL DACPAC | Monthly migrations |
+| **edi-database-eventstore** | Event store database | Azure SQL | EF Core migrations | Monthly migrations |
 | **edi-database-sftptracking** | SFTP tracking database | Azure SQL | EF Core | Monthly migrations |
 | **edi-documentation** | Platform documentation | GitHub Pages | Markdown | As needed |
 
